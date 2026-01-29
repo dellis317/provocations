@@ -1,18 +1,107 @@
-import { sql } from "drizzle-orm";
-import { pgTable, text, varchar } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+// Lens types
+export const lensTypes = [
+  "consumer",
+  "executive", 
+  "technical",
+  "financial",
+  "strategic",
+  "skeptic",
+] as const;
+
+export type LensType = typeof lensTypes[number];
+
+export const lensSchema = z.object({
+  id: z.string(),
+  type: z.enum(lensTypes),
+  title: z.string(),
+  summary: z.string(),
+  keyPoints: z.array(z.string()),
+  isActive: z.boolean(),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
+export type Lens = z.infer<typeof lensSchema>;
+
+// Provocation types
+export const provocationType = [
+  "opportunity",
+  "fallacy", 
+  "alternative",
+] as const;
+
+export type ProvocationType = typeof provocationType[number];
+
+export const provocationSchema = z.object({
+  id: z.string(),
+  type: z.enum(provocationType),
+  title: z.string(),
+  content: z.string(),
+  sourceExcerpt: z.string(),
+  status: z.enum(["pending", "addressed", "rejected", "highlighted"]),
 });
 
+export type Provocation = z.infer<typeof provocationSchema>;
+
+// Outline item schema
+export const outlineItemSchema = z.object({
+  id: z.string(),
+  heading: z.string(),
+  content: z.string(),
+  order: z.number(),
+  isExpanded: z.boolean(),
+});
+
+export type OutlineItem = z.infer<typeof outlineItemSchema>;
+
+// Tone options
+export const toneOptions = [
+  "inspirational",
+  "practical",
+  "analytical",
+  "persuasive",
+  "cautious",
+] as const;
+
+export type ToneOption = typeof toneOptions[number];
+
+// Document schema (in-memory only, no persistence needed)
+export const documentSchema = z.object({
+  id: z.string(),
+  rawText: z.string(),
+});
+
+export type Document = z.infer<typeof documentSchema>;
+
+// API request schemas - used by both frontend and backend
+export const analyzeTextRequestSchema = z.object({
+  text: z.string().min(1, "Text is required"),
+  selectedLenses: z.array(z.enum(lensTypes)).optional(),
+});
+
+export type AnalyzeTextRequest = z.infer<typeof analyzeTextRequestSchema>;
+
+export const expandOutlineRequestSchema = z.object({
+  heading: z.string().min(1, "Heading is required"),
+  context: z.string().optional(),
+  tone: z.enum(toneOptions).optional().default("practical"),
+});
+
+export type ExpandOutlineRequest = z.infer<typeof expandOutlineRequestSchema>;
+
+export const refineTextRequestSchema = z.object({
+  text: z.string().min(1, "Text is required"),
+  tone: z.enum(toneOptions),
+  targetLength: z.enum(["shorter", "same", "longer"]),
+});
+
+export type RefineTextRequest = z.infer<typeof refineTextRequestSchema>;
+
+// Legacy exports for compatibility with template
+export const users = {} as any;
+export const insertUserSchema = z.object({
+  username: z.string(),
+  password: z.string(),
+});
 export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
+export type User = { id: string; username: string; password: string };

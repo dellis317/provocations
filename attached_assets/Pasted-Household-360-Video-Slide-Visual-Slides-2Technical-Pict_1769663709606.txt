@@ -1,0 +1,397 @@
+Household 360  
+
+Video | [Slide-Visual][Slides-2Technical] | Picture | Sample Data 
+
+
+
+The provided documentation outlines how Salesforce Data Cloud manages and unifies household data to provide a comprehensive view of related individuals. It distinguishes between Customer Households, which are already structured in CRM systems like Financial Service Cloud, and Lead or Attribute-Based Households, which are derived from shared traits like physical addresses and surnames. By utilizing Identity Resolution and specialized Data Model Objects, organizations can link known and unknown members to a single household entity. This unification enables advanced marketing strategies, such as targeting a "primary" family member or identifying cross-selling opportunities when one member possesses a specific product. Ultimately, the system allows businesses to segment and activate data at the household level, ensuring consistent communication across various digital and physical channels.
+
+1. Harmonize Household and Member Data
+Refined Description: Unify data to create a comprehensive "Household 360" view. Consolidate assets from CRM, Marketing, and Web sources to build a single, unified view of the Household. This enables you to visualize complete purchase histories—including guest orders—and track marketing engagement or spend at both the individual and aggregate household levels.
+2. Expand Knowledge of the Household
+Refined Description: Enrich Customer Households by uncovering hidden relationships. Identify and associate individuals from external systems who were not previously linked to your CRM Households. By leveraging Identity Match rules, you can map these external individuals to existing Customer Households, providing a more complete picture of household membership beyond the direct CRM contacts.
+3. Form New Attribute-Based Households (Live)
+Refined Description: Generate "Lead" Households to drive acquisition and growth. Create new, Attribute-Based Households for individuals who do not link to existing managed Customer Households. These "derived" groups serve as a starting point for marketing activation, allowing you to nurture these unmanaged leads until they can be converted into fully managed "Customer" Households in the Core CRM
+
+
+
+Data Model 
+What is a Customer Household? 
+Customer Households are Households managed in Core by Customers directly through Salesforce Products - Financial Service Cloud (FSC) and Non-Profit Starter Pack (NPS). These are Account records of type Household and must be separated from other B2B, B2C Accounts, via Data Transformation, prior to mapping to Household-DMO 
+What is a Lead/Attribute-Based Household 
+[256] Attributed based Household - A Household that does not yet exist in CRM and is unmanaged by the Customer. Creating an attribute based Household is a good starting point into Household for Marketing and converting or growing in Customer Household. 
+
+Customer Household (Sample Data) 
+Core to Data Cloud (minimal DMOs for Identity Resolution) 
+
+
+Complete Model (All sObjects) to Data Cloud DMOs 
+
+Household DMO + CPs 
+The household DMO is where the Household and its attributes are stored. Household is a ‘Party’-DMO which means that it connects to Contact Points and Party Identifier DMOs via direct 1:M relationship. The Household’s Contact Points are important during Activation, they are not used as match-rules for Identity Resolution. 
+
+Household Accounts from Financial Service Cloud and Non-Profit Package are expected to be mapped to Household DMO. 
+
+DMO: ssot__Household__dlm
+
+Household Id
+Household Name
+Last Modified Date
+household_account_1
+Smith Family
+1/13/2026 23:28:44
+household_account_2
+Wheeler Family
+1/12/2026 23:28:44
+household_account_3
+Jones Family
+1/13/2026 23:28:44
+household_account_4
+Head Family
+1/10/2026 23:28:44
+
+
+Identity Match DMO 
+The Identity Match DMO is used to provide an identity link between the Household and Individuals. The relationship between Individual and Household is an Identity Match record with Identity Match Type of “Household Member” (Note is configurable parameter and the value used in the default member association rule). 
+
+
+Identity Match Id
+Record
+Matching Record
+Identity Match Type
+Is a Match
+Object
+Matching Object
+1_acct_cnt_rel
+ind_contact_1
+household_account_1
+Household Member
+TRUE
+Individual__dlm
+Household__dlm
+2_acct_cnt_rel
+ind_contact_2
+household_account_1
+Household Member
+TRUE
+Individual__dlm
+Household__dlm
+3_acct_cnt_rel
+ind_contact_3
+household_account_2
+Household Member
+TRUE
+Individual__dlm
+Household__dlm
+4_acct_cnt_rel
+ind_contact_4
+household_account_2
+Household Member
+TRUE
+Individual__dlm
+Household__dlm
+5_acct_cnt_rel
+ind_contact_5
+household_account_3
+Household Member
+TRUE
+Individual__dlm
+Household__dlm
+6_acct_cnt_rel
+ind_contact_6
+household_account_3
+Household Member
+TRUE
+Individual__dlm
+Household__dlm
+7_acct_cnt_rel
+ind_contact_7
+household_account_4
+Household Member
+TRUE
+Individual__dlm
+Household__dlm
+8_acct_cnt_rel
+ind_contact_8
+household_account_4
+Household Member
+TRUE
+Individual__dlm
+Household__dlm
+
+
+
+Individual DMO + CPs 
+In most cases the Individual-DMO will contain a mix between Individuals with existing Household and Individuals without Household. The goal of the Household identity resolution is to associate as many existing Individuals to existing Households or create new Households for those without a link. 
+
+
+Individual Id
+First Name
+Last Name
+Last Modified Date
+Note
+ind_contact_1
+Joan
+Smith
+1/13/2026 23:28:44
+
+
+ind_contact_2
+Tom
+Smith
+1/12/2026 23:28:44
+
+
+ind_contact_2_1
+Thomas
+Smith
+1/12/2026 23:28:44
+Records Not part of CRM Household
+ind_contact_2_2
+Thomas
+Smith
+1/12/2026 23:28:44
+Records Not part of CRM Household
+ind_contact_3
+Jim
+Wheeler
+1/12/2026 23:28:44
+
+
+ind_contact_4
+Tim
+Wheeler
+1/13/2026 23:28:44
+
+
+ind_contact_5
+Claire
+Jones
+1/10/2026 23:28:44
+
+
+ind_contact_6
+Haley
+Jones
+1/10/2026 23:28:44
+
+
+ind_contact_6_a
+Danny
+Jones
+1/10/2026 23:28:44
+Extend Household by Matching to it outside of CRM
+ind_contact_6_b
+Dan
+Jones
+1/10/2026 23:28:44
+Extend Household by Matching to it outside of CRM
+ind_contact_7
+Phil
+Head
+1/13/2026 23:28:44
+
+
+ind_contact_8
+Travis
+Head
+1/13/2026 23:28:44
+
+
+
+
+
+Contact Points 
+
+Address 
+
+Contact Point Email Id
+Party
+Address Line 1
+City
+Country
+Preference Rank
+Last Modified Date
+ind_contact_add_1
+ind_contact_1
+123 Main Street
+Palo Alto
+US
+
+
+1/13/2026 23:28:44
+ind_contact_add_2
+ind_contact_2
+123 Main Street
+Palo Alto
+US
+
+
+1/12/2026 23:28:44
+ind_contact_add_3
+ind_contact_3
+456 Broadway
+San Diego
+US
+
+
+1/12/2026 23:28:44
+ind_contact_add_4
+ind_contact_4
+575 Washington St
+Chicago
+US
+
+
+1/13/2026 23:28:44
+ind_contact_add_5
+ind_contact_5
+2 Dunphy Lane
+SanFrancisco
+US
+1
+1/10/2026 23:28:44
+ind_contact_add_6
+ind_contact_5
+28 Small Lane
+SanFrancisco
+US
+2
+1/10/2026 23:28:44
+ind_contact_add_7
+ind_contact_6
+12 Bald Eagle
+SanFrancisco
+US
+
+
+1/10/2026 23:28:44
+ind_contact_add_8
+ind_contact_6_a
+12 Bald Eagle
+SanFrancisco
+US
+
+
+1/10/2026 23:28:44
+ind_contact_add_9
+ind_contact_7
+3 Wickersham Lane
+Cupertino
+US
+
+
+1/13/2026 23:28:44
+ind_contact_add_10
+ind_contact_8
+195th PL SE
+San Jose
+US
+
+
+1/13/2026 23:28:44
+household_account_add_1
+household_account_1
+123 Main Street
+Palo Alto
+US
+
+
+1/13/2026 23:28:44
+household_account_add_2
+household_account_2
+456 Broadway
+San Diego
+US
+1
+1/12/2026 23:28:44
+household_account_add_3
+household_account_2
+575 Washington St
+Chicago
+US
+2
+1/13/2026 23:28:44
+household_account_add_4
+household_account_3
+3 Wickersham Lane
+Cupertino
+US
+
+
+1/13/2026 23:28:44
+
+
+Email
+
+Id
+Party Id
+Email Address
+Last Modified Date
+ind_contact_2
+ind_contact_2
+thomas.smith@gmail.com
+1/13/2026 22:34:04
+ind_contact_2_1
+ind_contact_2_1
+thomas.smith@gmail.com
+1/13/2026 22:34:04
+ind_contact_2_2
+ind_contact_2_2
+thomas.smith@gmail.com
+1/13/2026 22:34:04
+ind_contact_8
+ind_contact_8
+travis.head@gmail.com
+1/13/2026 22:34:04
+ind_contact_8_1
+ind_contact_8_1
+travis.head@gmail.com
+1/13/2026 22:34:04
+ind_contact_8_2
+ind_contact_8_2
+travis.head@gmail.com
+1/13/2026 22:34:04
+
+ 
+
+Key Mappings from CRM 
+
+Account 
+Household-Accounts should be mapped to Household-DMO. If the Customer has multiple Account types in their CRM (very common) a transformation to split the DLO is required first. Then the portion of Customer/Household Accounts and their attributes are mapped to Household. 
+Person-Account or Contact 
+The Person-Accounts portion should be mapped to Individual-DMO. Create a transformation to split the DLO and map the People portion of it to Individual-DMO. 
+Account Contact Relationship 
+Two common models are followed in CRM, the relationship between Contact and Accounts could be stored on Account Contact Relationship or Contact 
+Option 1:  Account - Contact - Relationship (ACR)          
+Fin-Service Cloud, One Individual can be part of Multiple Households (the common default) 
+
+Option 2: Contact . Account_Id 
+If the ACR object is not is use, only the default 1:1 relationship between Contact and Account then populate the Identity-Match-DMO from “Contact” 
+Contact.Id -> Record Id 
+Account.Id -> Matching Record Id 
+Household Ruleset 
+Create new Ruleset with primary DMO-Entity Household  
+The Identity Match DMO is used to provide an identity link between the Household and Individuals. The relationship between Individual and Household is an Identity Match record with Identity Match. 
+
+Default Match Rules
+A match rule based on the “Identity Match”-dmo is required to ensure that pre-existing relationships between Household and its members from CRM are retained and respected in D360. Additional configured rules apply only for the purpose of matching Individuals into Households, the “Identity Match” rule represents a given relationship. Match rules add new relationships and Households based on the data-attributes in the data. 
+
+After adding the two default match rules
+
+
+
+
+
+Common Rules
+
+Party Identifiers 
+Customers who have existing Household identifiers or what to use external Identification can add additional rules to the ruleset. 
+
+Address Only 
+Customers can create a match rule with only the address attributes. This is only recommended for Customers who have good quality addresses or Address Normalization service. 
+
+
+Segmentation / Activation 
+
+Householding in Data Cloud: Turning Individual Data into Collective Intelligence

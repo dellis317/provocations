@@ -1,16 +1,266 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import OpenAI from "openai";
+import { 
+  analyzeTextRequestSchema, 
+  expandOutlineRequestSchema,
+  refineTextRequestSchema,
+  lensTypes,
+  provocationType,
+  type LensType,
+  type ProvocationType,
+  type Lens,
+  type Provocation
+} from "@shared/schema";
+
+const openai = new OpenAI({
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+});
+
+const lensPrompts: Record<LensType, string> = {
+  consumer: "Analyze from a consumer/end-user perspective. What matters to customers? What pain points or delights exist?",
+  executive: "Analyze from a leadership/executive perspective. What are the strategic implications, risks, and opportunities?",
+  technical: "Analyze from a technical implementation perspective. What's feasible, what are the constraints, what technical debt exists?",
+  financial: "Analyze from a financial perspective. What are the costs, revenues, ROI implications, and budget considerations?",
+  strategic: "Analyze from a long-term strategic perspective. How does this affect competitive positioning and market presence?",
+  skeptic: "Analyze with healthy skepticism. What assumptions are being made? What could go wrong? What's being overlooked?",
+};
+
+const provocationPrompts: Record<ProvocationType, string> = {
+  opportunity: "Identify potential opportunities for growth, innovation, or improvement that might be missed.",
+  fallacy: "Identify logical fallacies, weak arguments, unsupported claims, or gaps in reasoning.",
+  alternative: "Suggest alternative approaches, different perspectives, or lateral thinking opportunities.",
+};
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // put application routes here
-  // prefix all routes with /api
+  
+  // Main analysis endpoint - generates lenses and provocations
+  app.post("/api/analyze", async (req, res) => {
+    try {
+      const parsed = analyzeTextRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
 
-  // use storage to perform CRUD operations on the storage interface
-  // e.g. storage.insertUser(user) or storage.getUserByUsername(username)
+      const { text } = parsed.data;
+      
+      // Create document
+      const document = await storage.createDocument(text);
+
+      // Generate lenses in parallel
+      const lensPromises = lensTypes.map(async (lensType): Promise<Lens> => {
+        try {
+          const response = await openai.chat.completions.create({
+            model: "gpt-5.2",
+            max_completion_tokens: 1024,
+            messages: [
+              {
+                role: "system",
+                content: `You are an analytical assistant helping users understand text through specific lenses. ${lensPrompts[lensType]}
+                
+Respond with a JSON object containing:
+- title: A brief title for this lens analysis (max 50 chars)
+- summary: A 2-3 sentence summary from this perspective
+- keyPoints: An array of 3-5 key observations (each max 30 chars)
+
+Output only valid JSON, no markdown.`
+              },
+              {
+                role: "user",
+                content: `Analyze this text through the ${lensType} lens:\n\n${text.slice(0, 8000)}`
+              }
+            ],
+            response_format: { type: "json_object" },
+          });
+
+          const content = response.choices[0]?.message?.content || "{}";
+          let parsedResponse: Record<string, unknown> = {};
+          try {
+            parsedResponse = JSON.parse(content);
+          } catch {
+            console.error(`Failed to parse JSON for ${lensType} lens:`, content);
+          }
+          
+          return {
+            id: `${lensType}-${Date.now()}`,
+            type: lensType,
+            title: typeof parsedResponse.title === 'string' ? parsedResponse.title : `${lensType} Analysis`,
+            summary: typeof parsedResponse.summary === 'string' ? parsedResponse.summary : "Analysis not available",
+            keyPoints: Array.isArray(parsedResponse.keyPoints) ? parsedResponse.keyPoints : [],
+            isActive: false,
+          };
+        } catch (error) {
+          console.error(`Error generating ${lensType} lens:`, error);
+          return {
+            id: `${lensType}-${Date.now()}`,
+            type: lensType,
+            title: `${lensType} Analysis`,
+            summary: "Analysis could not be generated",
+            keyPoints: [],
+            isActive: false,
+          };
+        }
+      });
+
+      // Generate provocations in parallel
+      const provocationPromises = provocationType.map(async (provType): Promise<Provocation[]> => {
+        try {
+          const response = await openai.chat.completions.create({
+            model: "gpt-5.2",
+            max_completion_tokens: 2048,
+            messages: [
+              {
+                role: "system",
+                content: `You are a critical thinking partner. Your job is to challenge the user's assumptions and push their thinking deeper. ${provocationPrompts[provType]}
+
+Generate 2-3 provocations. For each, provide:
+- title: A punchy headline for the provocation (max 60 chars)
+- content: A 2-3 sentence explanation of the provocation
+- sourceExcerpt: A relevant quote from the source text that this provocation relates to (max 150 chars)
+
+Respond with a JSON object containing an array called "provocations".
+Output only valid JSON, no markdown.`
+              },
+              {
+                role: "user",
+                content: `Generate ${provType} provocations for this text:\n\n${text.slice(0, 8000)}`
+              }
+            ],
+            response_format: { type: "json_object" },
+          });
+
+          const content = response.choices[0]?.message?.content || "{}";
+          let parsedResponse: Record<string, unknown> = {};
+          try {
+            parsedResponse = JSON.parse(content);
+          } catch {
+            console.error(`Failed to parse JSON for ${provType} provocations:`, content);
+            return [];
+          }
+          
+          const provocationsArray = Array.isArray(parsedResponse.provocations) 
+            ? parsedResponse.provocations 
+            : [];
+            
+          return provocationsArray.map((p: unknown, idx: number): Provocation => {
+            const item = p as Record<string, unknown>;
+            return {
+              id: `${provType}-${Date.now()}-${idx}`,
+              type: provType,
+              title: typeof item?.title === 'string' ? item.title : "Untitled Provocation",
+              content: typeof item?.content === 'string' ? item.content : "",
+              sourceExcerpt: typeof item?.sourceExcerpt === 'string' ? item.sourceExcerpt : "",
+              status: "pending",
+            };
+          });
+        } catch (error) {
+          console.error(`Error generating ${provType} provocations:`, error);
+          return [];
+        }
+      });
+
+      const [lenses, provocationArrays] = await Promise.all([
+        Promise.all(lensPromises),
+        Promise.all(provocationPromises),
+      ]);
+
+      const provocations = provocationArrays.flat();
+
+      res.json({ document, lenses, provocations });
+    } catch (error) {
+      console.error("Analysis error:", error);
+      res.status(500).json({ error: "Failed to analyze text" });
+    }
+  });
+
+  // Expand a heading into content - uses shared schema
+  app.post("/api/expand", async (req, res) => {
+    try {
+      const parsed = expandOutlineRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const { heading, context, tone } = parsed.data;
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-5.2",
+        max_completion_tokens: 1024,
+        messages: [
+          {
+            role: "system",
+            content: `You are a writing assistant helping users develop their arguments. Your tone should be ${tone}. 
+            
+Write a focused paragraph (100-200 words) that develops the given heading into substantive content. 
+Use the provided context to inform your writing, but create original, well-structured prose.
+Do not use bullet points or lists. Write in flowing paragraphs.
+Output only the paragraph text, no headings or labels.`
+          },
+          {
+            role: "user",
+            content: `Heading: ${heading}\n\nContext from source material:\n${context?.slice(0, 4000) || "No context provided"}`
+          }
+        ],
+      });
+
+      const content = response.choices[0]?.message?.content || "";
+      res.json({ content: content.trim() });
+    } catch (error) {
+      console.error("Expand error:", error);
+      res.status(500).json({ error: "Failed to expand heading" });
+    }
+  });
+
+  // Refine text with tone and length adjustments - uses shared schema
+  app.post("/api/refine", async (req, res) => {
+    try {
+      const parsed = refineTextRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const { text, tone, targetLength } = parsed.data;
+
+      const lengthInstruction = {
+        shorter: "Condense the text to approximately 60-70% of its current length while preserving key points.",
+        same: "Keep approximately the same length while refining the language.",
+        longer: "Expand the text to approximately 130-150% of its current length with more detail and examples.",
+      }[targetLength];
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-5.2",
+        max_completion_tokens: 2048,
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert editor helping refine written content. 
+
+Apply these adjustments:
+- Tone: Make the writing more ${tone}
+- Length: ${lengthInstruction}
+
+Preserve the overall structure and key arguments. Improve clarity and flow.
+Output only the refined text, maintaining any section headings if present.`
+          },
+          {
+            role: "user",
+            content: text
+          }
+        ],
+      });
+
+      const refined = response.choices[0]?.message?.content || text;
+      res.json({ refined: refined.trim() });
+    } catch (error) {
+      console.error("Refine error:", error);
+      res.status(500).json({ error: "Failed to refine text" });
+    }
+  });
 
   return httpServer;
 }
