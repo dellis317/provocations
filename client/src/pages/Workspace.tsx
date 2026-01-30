@@ -45,7 +45,7 @@ export default function Workspace() {
   const analyzeMutation = useMutation({
     mutationFn: async (text: string) => {
       const response = await apiRequest("POST", "/api/analyze", { text });
-      return response as { document: Document; lenses: Lens[]; provocations: Provocation[] };
+      return await response.json() as { document: Document; lenses: Lens[]; provocations: Provocation[] };
     },
     onSuccess: (data) => {
       const lensesData = data.lenses ?? [];
@@ -75,7 +75,7 @@ export default function Workspace() {
         context: context || document?.rawText,
         tone: selectedTone 
       });
-      return response as { content: string };
+      return await response.json() as { content: string };
     },
     onError: (error) => {
       toast({
@@ -89,7 +89,7 @@ export default function Workspace() {
   const refineMutation = useMutation({
     mutationFn: async ({ text, tone, length }: { text: string; tone: ToneOption; length: "shorter" | "same" | "longer" }) => {
       const response = await apiRequest("POST", "/api/refine", { text, tone, targetLength: length });
-      return response as { refined: string };
+      return await response.json() as { refined: string };
     },
     onSuccess: (data) => {
       setRefinedPreview(data.refined);
