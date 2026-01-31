@@ -6,6 +6,7 @@ import {
   analyzeTextRequestSchema, 
   expandOutlineRequestSchema,
   refineTextRequestSchema,
+  mergeTextRequestSchema,
   lensTypes,
   provocationType,
   type LensType,
@@ -259,6 +260,59 @@ Output only the refined text, maintaining any section headings if present.`
     } catch (error) {
       console.error("Refine error:", error);
       res.status(500).json({ error: "Failed to refine text" });
+    }
+  });
+
+  // Merge user feedback into document
+  app.post("/api/merge", async (req, res) => {
+    try {
+      const parsed = mergeTextRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const { originalText, userFeedback, provocationContext } = parsed.data;
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-5.2",
+        max_completion_tokens: 4096,
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert editor helping integrate user feedback into a document. 
+
+The user has been reviewing their document and responding to critical thinking provocations. They've provided verbal feedback that should be intelligently merged into their original document.
+
+Your task:
+1. Understand the user's feedback and insights
+2. Identify where in the original document these insights are relevant
+3. Intelligently integrate the feedback THROUGHOUT the document where appropriate
+4. Maintain the document's original structure and voice
+5. Don't just append - weave the new insights naturally into the existing text
+6. Mark significant additions or changes with subtle improvements, not wholesale rewrites
+
+${provocationContext ? `The feedback was in response to this provocation: "${provocationContext}"` : ""}
+
+Output only the merged document text, no explanations or metadata.`
+          },
+          {
+            role: "user",
+            content: `ORIGINAL DOCUMENT:
+${originalText}
+
+USER'S FEEDBACK TO INTEGRATE:
+${userFeedback}
+
+Please merge the feedback intelligently throughout the document where relevant.`
+          }
+        ],
+      });
+
+      const mergedText = response.choices[0]?.message?.content || originalText;
+      res.json({ mergedText: mergedText.trim() });
+    } catch (error) {
+      console.error("Merge error:", error);
+      res.status(500).json({ error: "Failed to merge feedback" });
     }
   });
 

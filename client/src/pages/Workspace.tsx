@@ -8,6 +8,8 @@ import { ProvocationsDisplay } from "@/components/ProvocationsDisplay";
 import { OutlineBuilder } from "@/components/OutlineBuilder";
 import { ReadingPane } from "@/components/ReadingPane";
 import { DimensionsToolbar } from "@/components/DimensionsToolbar";
+import { DiffView } from "@/components/DiffView";
+import { LargeVoiceRecorder } from "@/components/VoiceRecorder";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -17,7 +19,8 @@ import {
   RotateCcw, 
   MessageSquareWarning,
   ListTree,
-  Settings2
+  Settings2,
+  GitCompare
 } from "lucide-react";
 import type { 
   Document, 
@@ -25,13 +28,16 @@ import type {
   Provocation, 
   OutlineItem, 
   LensType, 
-  ToneOption 
+  ToneOption,
+  DocumentVersion
 } from "@shared/schema";
+
+type AppPhase = "input" | "blank-document" | "workspace";
 
 export default function Workspace() {
   const { toast } = useToast();
   
-  const [isInputPhase, setIsInputPhase] = useState(true);
+  const [phase, setPhase] = useState<AppPhase>("input");
   const [document, setDocument] = useState<Document | null>(null);
   const [lenses, setLenses] = useState<Lens[]>([]);
   const [activeLens, setActiveLens] = useState<LensType | null>(null);
@@ -41,6 +47,11 @@ export default function Workspace() {
   const [targetLength, setTargetLength] = useState<"shorter" | "same" | "longer">("same");
   const [activeTab, setActiveTab] = useState("provocations");
   const [refinedPreview, setRefinedPreview] = useState<string | null>(null);
+  
+  // Voice and version tracking
+  const [isRecordingBlank, setIsRecordingBlank] = useState(false);
+  const [versions, setVersions] = useState<DocumentVersion[]>([]);
+  const [showDiffView, setShowDiffView] = useState(false);
 
   const analyzeMutation = useMutation({
     mutationFn: async (text: string) => {
@@ -53,7 +64,17 @@ export default function Workspace() {
       setDocument(data.document);
       setLenses(lensesData);
       setProvocations(provocationsData);
-      setIsInputPhase(false);
+      setPhase("workspace");
+      
+      // Create initial version
+      const initialVersion: DocumentVersion = {
+        id: `v-${Date.now()}`,
+        text: data.document.rawText,
+        timestamp: Date.now(),
+        description: "Original document"
+      };
+      setVersions([initialVersion]);
+      
       toast({
         title: "Analysis Complete",
         description: `Generated ${lensesData.length} lenses and ${provocationsData.length} provocations.`,
@@ -62,6 +83,38 @@ export default function Workspace() {
     onError: (error) => {
       toast({
         title: "Analysis Failed",
+        description: error instanceof Error ? error.message : "Something went wrong",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const mergeMutation = useMutation({
+    mutationFn: async ({ originalText, userFeedback, provocationContext }: { originalText: string; userFeedback: string; provocationContext?: string }) => {
+      const response = await apiRequest("POST", "/api/merge", { originalText, userFeedback, provocationContext });
+      return await response.json() as { mergedText: string };
+    },
+    onSuccess: (data, variables) => {
+      if (document) {
+        // Save current version before updating
+        const newVersion: DocumentVersion = {
+          id: `v-${Date.now()}`,
+          text: data.mergedText,
+          timestamp: Date.now(),
+          description: "After voice feedback"
+        };
+        setVersions(prev => [...prev, newVersion]);
+        setDocument({ ...document, rawText: data.mergedText });
+        
+        toast({
+          title: "Feedback Integrated",
+          description: "Your response has been merged into the document.",
+        });
+      }
+    },
+    onError: (error) => {
+      toast({
+        title: "Merge Failed",
         description: error instanceof Error ? error.message : "Something went wrong",
         variant: "destructive",
       });
@@ -204,13 +257,16 @@ export default function Workspace() {
   }, []);
 
   const handleReset = useCallback(() => {
-    setIsInputPhase(true);
+    setPhase("input");
     setDocument(null);
     setLenses([]);
     setActiveLens(null);
     setProvocations([]);
     setOutline([]);
     setRefinedPreview(null);
+    setVersions([]);
+    setShowDiffView(false);
+    setIsRecordingBlank(false);
   }, []);
 
   const handleDocumentTextChange = useCallback((newText: string) => {
@@ -219,10 +275,43 @@ export default function Workspace() {
     }
   }, [document]);
 
+  const handleBlankDocument = useCallback(() => {
+    setPhase("blank-document");
+  }, []);
+
+  const handleBlankDocumentTranscript = useCallback((transcript: string) => {
+    if (transcript.trim()) {
+      // Trigger analysis with transcribed text
+      analyzeMutation.mutate(transcript);
+    }
+  }, [analyzeMutation]);
+
+  const handleVoiceResponse = useCallback((provocationId: string, transcript: string, provocationContext: string) => {
+    if (!document || !transcript.trim()) return;
+    
+    mergeMutation.mutate({
+      originalText: document.rawText,
+      userFeedback: transcript,
+      provocationContext
+    });
+    
+    // Mark the provocation as addressed
+    setProvocations((prev) =>
+      prev.map((p) => (p.id === provocationId ? { ...p, status: "addressed" as const } : p))
+    );
+  }, [document, mergeMutation]);
+
+  const toggleDiffView = useCallback(() => {
+    setShowDiffView(prev => !prev);
+  }, []);
+
   const activeLensSummary = lenses?.find((l) => l.type === activeLens)?.summary;
   const hasOutlineContent = outline?.some((item) => item.content) ?? false;
+  const canShowDiff = versions.length >= 2;
+  const previousVersion = versions.length >= 2 ? versions[versions.length - 2] : null;
+  const currentVersion = versions.length >= 1 ? versions[versions.length - 1] : null;
 
-  if (isInputPhase) {
+  if (phase === "input") {
     return (
       <div className="min-h-screen">
         <div className="absolute top-4 right-4">
@@ -230,8 +319,54 @@ export default function Workspace() {
         </div>
         <TextInputForm 
           onSubmit={handleAnalyze} 
+          onBlankDocument={handleBlankDocument}
           isLoading={analyzeMutation.isPending} 
         />
+      </div>
+    );
+  }
+
+  if (phase === "blank-document") {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <div className="absolute top-4 right-4 flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleReset}
+            className="gap-1.5"
+          >
+            <RotateCcw className="w-4 h-4" />
+            Back
+          </Button>
+          <ThemeToggle />
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center p-6">
+          <div className="text-center space-y-4 mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
+              <Sparkles className="w-8 h-8 text-primary" />
+            </div>
+            <h1 className="text-4xl font-serif font-bold tracking-tight">
+              Speak Your First Draft
+            </h1>
+            <p className="text-xl text-muted-foreground max-w-xl mx-auto leading-relaxed">
+              Click the microphone and start speaking. Your words will become the foundation for analysis.
+            </p>
+          </div>
+          
+          <LargeVoiceRecorder
+            onTranscript={handleBlankDocumentTranscript}
+            isRecording={isRecordingBlank}
+            onToggleRecording={() => setIsRecordingBlank(!isRecordingBlank)}
+          />
+          
+          {analyzeMutation.isPending && (
+            <div className="mt-8 flex items-center gap-3 text-muted-foreground">
+              <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              <span>Analyzing your draft...</span>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -247,6 +382,18 @@ export default function Workspace() {
         </div>
         
         <div className="flex items-center gap-2">
+          {canShowDiff && (
+            <Button
+              data-testid="button-versions"
+              variant={showDiffView ? "default" : "outline"}
+              size="sm"
+              onClick={toggleDiffView}
+              className="gap-1.5"
+            >
+              <GitCompare className="w-4 h-4" />
+              Versions ({versions.length})
+            </Button>
+          )}
           <Button
             data-testid="button-reset"
             variant="ghost"
@@ -260,6 +407,13 @@ export default function Workspace() {
           <ThemeToggle />
         </div>
       </header>
+      
+      {mergeMutation.isPending && (
+        <div className="bg-primary/10 border-b px-4 py-2 flex items-center gap-2 text-sm">
+          <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <span>Integrating your feedback into the document...</span>
+        </div>
+      )}
       
       <div className="flex-1 overflow-hidden">
         <ResizablePanelGroup direction="horizontal">
@@ -275,12 +429,19 @@ export default function Workspace() {
           <ResizableHandle withHandle />
           
           <ResizablePanel defaultSize={45} minSize={30}>
-            <ReadingPane
-              text={document?.rawText || ""}
-              activeLens={activeLens}
-              lensSummary={activeLensSummary}
-              onTextChange={handleDocumentTextChange}
-            />
+            {showDiffView && previousVersion && currentVersion ? (
+              <DiffView
+                previousVersion={previousVersion}
+                currentVersion={currentVersion}
+              />
+            ) : (
+              <ReadingPane
+                text={document?.rawText || ""}
+                activeLens={activeLens}
+                lensSummary={activeLensSummary}
+                onTextChange={handleDocumentTextChange}
+              />
+            )}
           </ResizablePanel>
           
           <ResizableHandle withHandle />
@@ -329,7 +490,9 @@ export default function Workspace() {
                   <ProvocationsDisplay
                     provocations={provocations}
                     onUpdateStatus={handleUpdateProvocationStatus}
+                    onVoiceResponse={handleVoiceResponse}
                     isLoading={analyzeMutation.isPending}
+                    isMerging={mergeMutation.isPending}
                   />
                 </TabsContent>
                 

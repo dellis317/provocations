@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { VoiceRecorder } from "./VoiceRecorder";
 import { 
   Lightbulb, 
   AlertTriangle, 
@@ -45,15 +46,21 @@ const provocationLabels: Record<ProvocationType, string> = {
 interface ProvocationsDisplayProps {
   provocations: Provocation[];
   onUpdateStatus: (id: string, status: Provocation["status"]) => void;
+  onVoiceResponse?: (provocationId: string, transcript: string, provocationContext: string) => void;
   isLoading?: boolean;
+  isMerging?: boolean;
 }
 
 function ProvocationCard({ 
   provocation, 
-  onUpdateStatus 
+  onUpdateStatus,
+  onVoiceResponse,
+  isMerging
 }: { 
   provocation: Provocation; 
   onUpdateStatus: (status: Provocation["status"]) => void;
+  onVoiceResponse?: (transcript: string, context: string) => void;
+  isMerging?: boolean;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const Icon = provocationIcons[provocation.type];
@@ -120,7 +127,23 @@ function ProvocationCard({
         )}
 
         {provocation.status === "pending" && (
-          <div className="flex items-center gap-2 pt-2">
+          <div className="flex items-center gap-2 pt-2 flex-wrap">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <VoiceRecorder
+                    onTranscript={(transcript) => {
+                      onVoiceResponse?.(transcript, `${provocation.title}: ${provocation.content}`);
+                    }}
+                    size="sm"
+                    variant="outline"
+                    className={isMerging ? "opacity-50 pointer-events-none" : ""}
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>Respond with your voice to integrate feedback</TooltipContent>
+            </Tooltip>
+            
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -175,7 +198,7 @@ function ProvocationCard({
   );
 }
 
-export function ProvocationsDisplay({ provocations, onUpdateStatus, isLoading }: ProvocationsDisplayProps) {
+export function ProvocationsDisplay({ provocations, onUpdateStatus, onVoiceResponse, isLoading, isMerging }: ProvocationsDisplayProps) {
   const [filter, setFilter] = useState<ProvocationType | "all">("all");
   
   const safeProvocations = provocations ?? [];
@@ -271,6 +294,8 @@ export function ProvocationsDisplay({ provocations, onUpdateStatus, isLoading }:
               key={provocation.id}
               provocation={provocation}
               onUpdateStatus={(status) => onUpdateStatus(provocation.id, status)}
+              onVoiceResponse={(transcript, context) => onVoiceResponse?.(provocation.id, transcript, context)}
+              isMerging={isMerging}
             />
           ))}
         </div>

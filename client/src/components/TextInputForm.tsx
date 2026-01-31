@@ -2,20 +2,31 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { FileText, ArrowRight, Sparkles } from "lucide-react";
+import { FileText, ArrowRight, Sparkles, FlaskConical, Mic } from "lucide-react";
+
+const TEST_SAMPLE_TEXT = `By 2027, the labor market is expected to reach a critical "implementation plateau" where the novelty of AI shifts into deep organizational integration. Analysts from Gartner and the World Economic Forum suggest that while roughly 83 million jobs may be displaced globally, the emergence of 69 million new roles will offset much of this loss, centering the year on workforce transformation rather than total depletion. The most significant shift will be the rise of "Agentic AI," with 50% of companies expected to deploy autonomous AI agents that handle routine cognitive tasks like scheduling, basic coding, and data synthesis. This transition will likely hollow out entry-level white-collar positions—often called the "white-collar bloodbath"—forcing a massive "reskilling revolution" where 44% of core worker skills must be updated. While technical roles in AI ethics and data oversight will boom, the highest market value will ironically return to "AI-free" human skills: critical thinking, complex empathy, and high-stakes judgment in fields like healthcare and law.`;
 
 interface TextInputFormProps {
   onSubmit: (text: string) => void;
+  onBlankDocument?: () => void;
   isLoading?: boolean;
 }
 
-export function TextInputForm({ onSubmit, isLoading }: TextInputFormProps) {
+export function TextInputForm({ onSubmit, onBlankDocument, isLoading }: TextInputFormProps) {
   const [text, setText] = useState("");
 
   const handleSubmit = () => {
     if (text.trim()) {
       onSubmit(text.trim());
     }
+  };
+
+  const handleTest = () => {
+    onSubmit(TEST_SAMPLE_TEXT);
+  };
+
+  const handleBlankDocument = () => {
+    onBlankDocument?.();
   };
 
   return (
@@ -52,31 +63,55 @@ export function TextInputForm({ onSubmit, isLoading }: TextInputFormProps) {
               onChange={(e) => setText(e.target.value)}
             />
             
-            <div className="flex items-center justify-between pt-2">
+            <div className="flex items-center justify-between pt-2 flex-wrap gap-2">
               <div className="text-sm text-muted-foreground">
                 {text.length > 0 && (
                   <span data-testid="text-char-count">{text.length.toLocaleString()} characters</span>
                 )}
               </div>
-              <Button
-                data-testid="button-analyze"
-                onClick={handleSubmit}
-                disabled={!text.trim() || isLoading}
-                size="lg"
-                className="gap-2"
-              >
-                {isLoading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    Begin Analysis
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </Button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  data-testid="button-blank-document"
+                  onClick={handleBlankDocument}
+                  disabled={isLoading}
+                  variant="outline"
+                  size="lg"
+                  className="gap-2"
+                >
+                  <Mic className="w-4 h-4" />
+                  Blank Document
+                </Button>
+                <Button
+                  data-testid="button-test"
+                  onClick={handleTest}
+                  disabled={isLoading}
+                  variant="secondary"
+                  size="lg"
+                  className="gap-2"
+                >
+                  <FlaskConical className="w-4 h-4" />
+                  Test
+                </Button>
+                <Button
+                  data-testid="button-analyze"
+                  onClick={handleSubmit}
+                  disabled={!text.trim() || isLoading}
+                  size="lg"
+                  className="gap-2"
+                >
+                  {isLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      Begin Analysis
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

@@ -97,6 +97,21 @@ export const refineTextRequestSchema = z.object({
 
 export type RefineTextRequest = z.infer<typeof refineTextRequestSchema>;
 
+export const mergeTextRequestSchema = z.object({
+  originalText: z.string().min(1, "Original text is required"),
+  userFeedback: z.string().min(1, "User feedback is required"),
+  provocationContext: z.string().optional(),
+});
+
+export type MergeTextRequest = z.infer<typeof mergeTextRequestSchema>;
+
+export interface DocumentVersion {
+  id: string;
+  text: string;
+  timestamp: number;
+  description: string;
+}
+
 // Legacy exports for compatibility with template
 export const users = {} as any;
 export const insertUserSchema = z.object({

@@ -4,6 +4,12 @@
 Provocations is a cognitive enhancement tool designed to challenge users and enhance critical thinking rather than acting as a traditional AI assistant. The core philosophy: "Would you rather have a tool that thinks for you, or a tool that makes you think?"
 
 ## Recent Changes
+- January 31, 2026: Added voice-driven document enhancement features:
+  - Test button with sample text for quick testing
+  - Blank Document flow with voice-first entry (large microphone interface)
+  - Voice recording on provocation cards using Web Speech API
+  - /api/merge endpoint for AI-powered feedback integration
+  - Version history tracking with GitHub-style diff comparison view
 - January 30, 2026: Added editable document view with pencil/check toggle and download button in ReadingPane
 - January 30, 2026: Fixed API response parsing - now correctly calling .json() on fetch responses
 - January 29, 2026: Added defensive null-checks throughout components, improved JSON parsing with type guards, added Open Graph meta tags
