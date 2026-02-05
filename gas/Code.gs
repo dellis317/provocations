@@ -9,6 +9,21 @@
  */
 
 // ============================================================
+// Web App Entry Point
+// ============================================================
+
+/**
+ * Serves the app as a standalone web app.
+ * Deployed via: Deploy > New deployment > Web app
+ */
+function doGet(e) {
+  return HtmlService.createTemplateFromFile('Sidebar')
+    .evaluate()
+    .setTitle('AnnotationApp')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// ============================================================
 // Menu & Sidebar
 // ============================================================
 
