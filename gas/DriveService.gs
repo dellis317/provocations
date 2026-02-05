@@ -244,8 +244,20 @@ function readDriveFile(fileId) {
   var content = '';
 
   if (mimeType === MimeType.GOOGLE_DOCS) {
-    var doc = DocumentApp.openById(fileId);
-    content = doc.getBody().getText();
+    try {
+      var doc = DocumentApp.openById(fileId);
+      content = doc.getBody().getText();
+    } catch (docErr) {
+      // Fallback: export the Google Doc as plain text via DriveApp
+      try {
+        content = file.getAs(MimeType.PLAIN_TEXT).getDataAsString();
+      } catch (exportErr) {
+        throw new Error(
+          'Cannot read this Google Doc. Ensure you have at least Viewer access to the file. ' +
+          'If this persists, try re-authorizing the app. (' + docErr.message + ')'
+        );
+      }
+    }
   } else if (mimeType === MimeType.PLAIN_TEXT || mimeType === 'text/markdown') {
     content = file.getBlob().getDataAsString();
   } else if (mimeType === MimeType.PDF) {

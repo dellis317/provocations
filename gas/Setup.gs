@@ -76,8 +76,7 @@ function runSetup() {
   // ----------------------------------------------------------
   var permissionsNeeded = [
     'https://www.googleapis.com/auth/spreadsheets — Read/write Google Sheets (per-user data & admin config)',
-    'https://www.googleapis.com/auth/drive — Create folders & save audio/transcript/doc files in user\'s Drive',
-    'https://www.googleapis.com/auth/drive.file — Access files created by this app',
+    'https://www.googleapis.com/auth/drive — Create folders, save files, and read documents from user\'s Drive',
     'https://www.googleapis.com/auth/documents — Read/write Google Docs content',
     'https://www.googleapis.com/auth/script.external_request — Call Gemini/Vertex AI API',
     'https://www.googleapis.com/auth/userinfo.email — Identify the current user for access control',
