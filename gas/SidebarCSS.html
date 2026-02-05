@@ -1,0 +1,575 @@
+<style>
+  /* ============================================================
+     AnnotationApp Sidebar — Salesforce Lightning Design System Style
+     Colors, spacing, and patterns inspired by SLDS.
+     ============================================================ */
+
+  :root {
+    /* Salesforce brand palette */
+    --brand-primary: #0176d3;
+    --brand-primary-dark: #014486;
+    --brand-primary-light: #1b96ff;
+    --brand-accessible: #0176d3;
+
+    /* Grays — SLDS neutral palette */
+    --color-background: #f4f6f9;
+    --color-background-alt: #ffffff;
+    --color-background-row-hover: #f3f3f3;
+    --color-background-input: #ffffff;
+    --color-background-highlight: #eef4ff;
+
+    --color-text-default: #181818;
+    --color-text-secondary: #444444;
+    --color-text-weak: #706e6b;
+    --color-text-inverse: #ffffff;
+    --color-text-link: #0176d3;
+
+    --color-border: #d8dde6;
+    --color-border-light: #e5e5e5;
+
+    /* Status colors */
+    --color-success: #2e844a;
+    --color-warning: #fe9339;
+    --color-error: #c23934;
+    --color-info: #0176d3;
+
+    /* Elevation */
+    --shadow-card: 0 2px 4px rgba(0, 0, 0, 0.06);
+    --shadow-elevated: 0 4px 14px rgba(0, 0, 0, 0.1);
+
+    /* Spacing & radius */
+    --radius-medium: 8px;
+    --radius-small: 4px;
+    --spacing-xx-small: 4px;
+    --spacing-x-small: 8px;
+    --spacing-small: 12px;
+    --spacing-medium: 16px;
+    --spacing-large: 24px;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: 'Salesforce Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
+    color: var(--color-text-default);
+    background: var(--color-background);
+    line-height: 1.5;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---- Global Header (SLDS page-header) ---- */
+
+  .slds-page-header {
+    background: var(--brand-primary);
+    padding: var(--spacing-small) var(--spacing-medium);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-x-small);
+  }
+
+  .slds-page-header .header-icon {
+    width: 28px;
+    height: 28px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+  }
+
+  .slds-page-header h1 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--color-text-inverse);
+    letter-spacing: 0.2px;
+  }
+
+  .slds-page-header .subtitle {
+    font-size: 11px;
+    color: rgba(255,255,255,0.75);
+    font-weight: 400;
+  }
+
+  /* ---- Layout ---- */
+
+  .app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .main-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-small) var(--spacing-medium);
+  }
+
+  .footer {
+    padding: var(--spacing-x-small) var(--spacing-medium);
+    border-top: 1px solid var(--color-border-light);
+    background: var(--color-background-alt);
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--color-text-weak);
+    text-align: center;
+  }
+
+  /* ---- SLDS Tabs ---- */
+
+  .slds-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: var(--spacing-small);
+    border-bottom: 2px solid var(--color-border-light);
+  }
+
+  .slds-tab {
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: inherit;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    color: var(--color-text-weak);
+    cursor: pointer;
+    transition: all 0.15s;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .slds-tab:hover {
+    color: var(--color-text-default);
+  }
+
+  .slds-tab.slds-is-active {
+    color: var(--brand-primary);
+    border-bottom-color: var(--brand-primary);
+  }
+
+  .tab-panel {
+    display: none;
+  }
+
+  .tab-panel.active {
+    display: block;
+  }
+
+  /* ---- SLDS Buttons ---- */
+
+  .slds-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-small);
+    cursor: pointer;
+    transition: all 0.12s;
+    background: var(--color-background-alt);
+    color: var(--brand-primary);
+    text-decoration: none;
+    line-height: 1.4;
+  }
+
+  .slds-button:hover {
+    background: var(--color-background-row-hover);
+  }
+
+  .slds-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .slds-button_brand {
+    background: var(--brand-primary);
+    color: var(--color-text-inverse);
+    border-color: var(--brand-primary);
+  }
+
+  .slds-button_brand:hover {
+    background: var(--brand-primary-dark);
+    border-color: var(--brand-primary-dark);
+  }
+
+  .slds-button_success {
+    background: var(--color-success);
+    color: var(--color-text-inverse);
+    border-color: var(--color-success);
+  }
+
+  .slds-button_destructive {
+    background: var(--color-error);
+    color: var(--color-text-inverse);
+    border-color: var(--color-error);
+  }
+
+  .slds-button_small {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+
+  .slds-button_icon {
+    padding: 6px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: var(--color-text-weak);
+    border-radius: var(--radius-small);
+    transition: background 0.1s;
+  }
+
+  .slds-button_icon:hover {
+    background: var(--color-background-row-hover);
+    color: var(--color-text-default);
+  }
+
+  .slds-button_full {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* ---- SLDS Forms ---- */
+
+  textarea, input[type="text"], input[type="password"], select {
+    width: 100%;
+    padding: 8px 12px;
+    font-family: inherit;
+    font-size: 13px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-small);
+    background: var(--color-background-input);
+    color: var(--color-text-default);
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+  textarea:focus, input[type="text"]:focus, input[type="password"]:focus, select:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 2px rgba(1, 118, 211, 0.2);
+  }
+
+  textarea {
+    resize: vertical;
+    min-height: 100px;
+    line-height: 1.6;
+  }
+
+  label, .slds-form-element__label {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-text-secondary);
+    margin-bottom: var(--spacing-xx-small);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .slds-form-element {
+    margin-bottom: var(--spacing-small);
+  }
+
+  /* ---- SLDS Cards ---- */
+
+  .slds-card {
+    background: var(--color-background-alt);
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius-medium);
+    padding: var(--spacing-small);
+    margin-bottom: var(--spacing-x-small);
+    box-shadow: var(--shadow-card);
+  }
+
+  .slds-card__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--spacing-x-small);
+  }
+
+  .slds-card__header-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--color-text-default);
+  }
+
+  .slds-card__body {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+  }
+
+  /* ---- Pill / Badge Chips (SLDS pill pattern) ---- */
+
+  .slds-pill-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: var(--spacing-small);
+  }
+
+  .slds-pill {
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: inherit;
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    background: var(--color-background-alt);
+    color: var(--color-text-weak);
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+
+  .slds-pill:hover {
+    border-color: var(--brand-primary-light);
+    color: var(--brand-primary);
+    background: var(--color-background-highlight);
+  }
+
+  .slds-pill.slds-is-selected {
+    background: var(--brand-primary);
+    color: var(--color-text-inverse);
+    border-color: var(--brand-primary);
+  }
+
+  /* ---- Provocation Cards ---- */
+
+  .provocation-card {
+    border-left: 3px solid var(--color-border);
+    transition: border-color 0.15s;
+  }
+
+  .provocation-card[data-type="opportunity"] { border-left-color: var(--color-success); }
+  .provocation-card[data-type="fallacy"]     { border-left-color: var(--color-error); }
+  .provocation-card[data-type="alternative"] { border-left-color: var(--color-info); }
+
+  .provocation-card.addressed {
+    opacity: 0.45;
+  }
+
+  .provocation-type {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+
+  .provocation-type.opportunity { color: var(--color-success); background: #e6f6ec; }
+  .provocation-type.fallacy     { color: var(--color-error); background: #fce4e4; }
+  .provocation-type.alternative { color: var(--color-info); background: #eef4ff; }
+
+  .provocation-excerpt {
+    font-size: 12px;
+    font-style: italic;
+    color: var(--color-text-weak);
+    margin-top: 6px;
+    padding-left: 8px;
+    border-left: 2px solid var(--color-border-light);
+  }
+
+  .provocation-actions {
+    display: flex;
+    gap: 4px;
+    margin-top: var(--spacing-x-small);
+  }
+
+  /* ---- Document Textarea ---- */
+
+  .document-area {
+    width: 100%;
+    min-height: 200px;
+    max-height: 400px;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.7;
+    padding: var(--spacing-small);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-medium);
+    background: var(--color-background-alt);
+    color: var(--color-text-default);
+  }
+
+  /* ---- Voice Recorder (SLDS icon button style) ---- */
+
+  .voice-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 2px solid var(--color-border);
+    background: var(--color-background-alt);
+    color: var(--color-text-weak);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+  }
+
+  .voice-btn:hover {
+    border-color: var(--brand-primary);
+    color: var(--brand-primary);
+  }
+
+  .voice-btn.recording {
+    border-color: var(--color-error);
+    background: var(--color-error);
+    color: var(--color-text-inverse);
+    animation: slds-pulse 1.5s infinite;
+  }
+
+  @keyframes slds-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(194, 57, 52, 0.4); }
+    50%      { box-shadow: 0 0 0 8px rgba(194, 57, 52, 0); }
+  }
+
+  .interim-transcript {
+    font-size: 12px;
+    color: var(--color-text-weak);
+    font-style: italic;
+    padding: 6px 8px;
+    background: var(--color-background-highlight);
+    border-radius: var(--radius-small);
+    margin-top: var(--spacing-xx-small);
+    max-height: 60px;
+    overflow-y: auto;
+  }
+
+  /* ---- SLDS Toast / Notification ---- */
+
+  .toast-container {
+    position: fixed;
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    z-index: 1000;
+  }
+
+  .slds-notify {
+    padding: 10px 14px;
+    border-radius: var(--radius-small);
+    font-size: 12px;
+    font-weight: 500;
+    margin-top: 6px;
+    animation: slds-slide-up 0.2s ease;
+    box-shadow: var(--shadow-elevated);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .slds-notify_success { background: var(--color-success); color: #fff; }
+  .slds-notify_error   { background: var(--color-error); color: #fff; }
+  .slds-notify_info    { background: var(--color-info); color: #fff; }
+
+  @keyframes slds-slide-up {
+    from { transform: translateY(10px); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
+  }
+
+  /* ---- Loading / Spinner (SLDS spinner) ---- */
+
+  .slds-spinner {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    border: 2.5px solid var(--color-border);
+    border-top-color: var(--brand-primary);
+    border-radius: 50%;
+    animation: slds-spin 0.6s linear infinite;
+  }
+
+  @keyframes slds-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .loading-overlay {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: var(--spacing-large);
+    color: var(--color-text-secondary);
+    font-size: 13px;
+  }
+
+  /* ---- Utility ---- */
+
+  .hidden { display: none !important; }
+  .slds-text-center { text-align: center; }
+  .slds-text-color_weak { color: var(--color-text-weak); }
+  .slds-text-body_small { font-size: 12px; }
+  .slds-m-top_xx-small { margin-top: 4px; }
+  .slds-m-top_x-small { margin-top: 8px; }
+  .slds-m-top_small { margin-top: 12px; }
+  .slds-m-bottom_x-small { margin-bottom: 8px; }
+  .slds-m-bottom_small { margin-bottom: 12px; }
+  .slds-grid { display: flex; }
+  .slds-grid_align-spread { justify-content: space-between; align-items: center; }
+  .slds-col { flex: 1; }
+  .slds-gap_x-small { gap: 8px; }
+
+  /* ---- Versions ---- */
+
+  .version-item {
+    padding: var(--spacing-x-small);
+    border-bottom: 1px solid var(--color-border-light);
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+
+  .version-item:hover {
+    background: var(--color-background-row-hover);
+  }
+
+  .version-time {
+    font-size: 11px;
+    color: var(--color-text-weak);
+  }
+
+  .version-desc {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+  }
+
+  /* ---- Feedback Pill (always visible bottom-right) ---- */
+
+  .feedback-pill {
+    position: fixed;
+    bottom: 40px;
+    right: 12px;
+    padding: 6px 14px;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-text-inverse);
+    background: var(--brand-primary);
+    border: none;
+    border-radius: 20px;
+    cursor: pointer;
+    box-shadow: var(--shadow-elevated);
+    z-index: 900;
+    transition: background 0.15s, transform 0.1s;
+    letter-spacing: 0.2px;
+  }
+
+  .feedback-pill:hover {
+    background: var(--brand-primary-dark);
+    transform: translateY(-1px);
+  }
+</style>

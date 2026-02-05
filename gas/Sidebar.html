@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('SidebarCSS') ?>
+</head>
+<body>
+  <div class="app-container">
+
+    <!-- SLDS Page Header (Salesforce-style blue banner) -->
+    <div class="slds-page-header">
+      <div class="header-icon">&#x26A1;</div>
+      <div>
+        <h1>AnnotationApp</h1>
+        <div class="subtitle">AI-Augmented Document Workspace</div>
+      </div>
+    </div>
+
+    <!-- ===== Phase: Input ===== -->
+    <div id="phase-input" class="main-content">
+      <div class="slds-form-element">
+        <label>Document Objective</label>
+        <input type="text" id="input-objective"
+          placeholder="What are you trying to create? e.g., 'A compelling product strategy memo'" />
+      </div>
+
+      <div class="slds-form-element">
+        <div class="slds-grid slds-grid_align-spread slds-m-bottom_x-small">
+          <label style="margin:0">Source Text</label>
+          <span id="input-source-label" class="slds-text-body_small slds-text-color_weak"></span>
+        </div>
+        <textarea id="input-text" rows="10"
+          placeholder="Paste your text here, or load from Google Drive..."></textarea>
+      </div>
+
+      <div class="slds-grid slds-gap_x-small">
+        <button class="slds-button slds-button_brand slds-button_full" onclick="startAnalysis()">
+          Analyze &amp; Generate Provocations
+        </button>
+      </div>
+
+      <div class="slds-grid slds-gap_x-small slds-m-top_x-small">
+        <button class="slds-button slds-button_full" onclick="loadFromDrive()">
+          Load from Drive
+        </button>
+      </div>
+
+      <div class="slds-m-top_small slds-text-center slds-text-body_small slds-text-color_weak">
+        The AI doesn't write for you &mdash; it provokes deeper thinking so <em>you</em> write better.
+      </div>
+    </div>
+
+    <!-- ===== Phase: Loading ===== -->
+    <div id="phase-loading" class="main-content hidden">
+      <div class="loading-overlay">
+        <div class="slds-spinner"></div>
+        <span>Analyzing through multiple lenses...</span>
+      </div>
+    </div>
+
+    <!-- ===== Phase: Workspace ===== -->
+    <div id="phase-workspace" class="main-content hidden">
+
+      <!-- Inline loader -->
+      <div id="inline-loader" class="loading-overlay hidden"></div>
+
+      <!-- SLDS Tabs -->
+      <div class="slds-tabs">
+        <button class="slds-tab slds-is-active" data-tab="document" onclick="switchTab('document')">Document</button>
+        <button class="slds-tab" data-tab="provocations" onclick="switchTab('provocations')">Provocations</button>
+        <button class="slds-tab" data-tab="lenses" onclick="switchTab('lenses')">Lenses</button>
+        <button class="slds-tab" data-tab="versions" onclick="switchTab('versions')">Versions</button>
+      </div>
+
+      <!-- Document Panel -->
+      <div id="panel-document" class="tab-panel active">
+        <div id="document-content"></div>
+      </div>
+
+      <!-- Provocations Panel -->
+      <div id="panel-provocations" class="tab-panel">
+        <div id="provocations-content"></div>
+      </div>
+
+      <!-- Lenses Panel -->
+      <div id="panel-lenses" class="tab-panel">
+        <div id="lenses-content"></div>
+      </div>
+
+      <!-- Versions Panel -->
+      <div id="panel-versions" class="tab-panel">
+        <div id="versions-content"></div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      AnnotationApp &mdash; Think deeper, write better
+    </div>
+
+    <!-- Feedback Pill (always visible, bottom-right) -->
+    <button class="feedback-pill" onclick="openFeedback()" title="Send Feedback">
+      &#x1F4AC; Feedback
+    </button>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+  </div>
+
+  <?!= include('SidebarJS') ?>
+</body>
+</html>
