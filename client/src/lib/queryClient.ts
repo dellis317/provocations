@@ -7,6 +7,26 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Verbose mode: global event bus for LLM call metadata
+// ---------------------------------------------------------------------------
+
+type VerboseListener = (data: unknown) => void;
+const verboseListeners = new Set<VerboseListener>();
+
+/** Subscribe to verbose metadata events from API responses */
+export function onVerboseData(listener: VerboseListener): () => void {
+  verboseListeners.add(listener);
+  return () => verboseListeners.delete(listener);
+}
+
+/** Emit verbose data to all listeners */
+export function emitVerboseData(data: unknown) {
+  for (const listener of Array.from(verboseListeners)) {
+    try { listener(data); } catch { /* ignore listener errors */ }
+  }
+}
+
 export async function apiRequest(
   method: string,
   url: string,
@@ -20,6 +40,19 @@ export async function apiRequest(
   });
 
   await throwIfResNotOk(res);
+
+  // For JSON responses from POST requests, intercept to capture verbose data.
+  // Clone the response so the caller can still read it.
+  const contentType = res.headers.get("content-type") || "";
+  if (method === "POST" && contentType.includes("application/json")) {
+    const cloned = res.clone();
+    cloned.json().then((json) => {
+      if (json && typeof json === "object" && "_verbose" in json) {
+        emitVerboseData(json);
+      }
+    }).catch(() => { /* ignore parse errors */ });
+  }
+
   return res;
 }
 
@@ -40,6 +73,21 @@ export const getQueryFn: <T>(options: {
     await throwIfResNotOk(res);
     return await res.json();
   };
+
+/**
+ * Unified LLM invoke helper — single function for all LLM interactions.
+ * Replaces direct calls to individual API endpoints.
+ *
+ * Usage:
+ *   const result = await invokeApi("write", { document, objective, instruction });
+ */
+export async function invokeApi<T = Record<string, unknown>>(
+  taskType: string,
+  params: Record<string, unknown>,
+): Promise<T> {
+  const res = await apiRequest("POST", "/api/invoke", { taskType, ...params });
+  return res.json() as Promise<T>;
+}
 
 export const queryClient = new QueryClient({
   defaultOptions: {

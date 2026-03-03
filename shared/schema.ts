@@ -1,36 +1,208 @@
 import { z } from "zod";
 
-// Lens types
-export const lensTypes = [
-  "consumer",
-  "executive", 
-  "technical",
-  "financial",
-  "strategic",
-  "skeptic",
-] as const;
+// ── Persona types (each persona provides Advice and Challenge feedback) ──
 
-export type LensType = typeof lensTypes[number];
-
-export const lensSchema = z.object({
-  id: z.string(),
-  type: z.enum(lensTypes),
-  title: z.string(),
-  summary: z.string(),
-  keyPoints: z.array(z.string()),
-  isActive: z.boolean(),
-});
-
-export type Lens = z.infer<typeof lensSchema>;
-
-// Provocation types
 export const provocationType = [
-  "opportunity",
-  "fallacy", 
-  "alternative",
+  "master_researcher",
+  "thinking_bigger",
+  "architect",
+  "quality_engineer",
+  "ux_designer",
+  "tech_writer",
+  "product_manager",
+  "security_engineer",
+  "ceo",
+  "data_architect",
+  "cybersecurity_engineer",
+  "growth_strategist",
+  "brand_strategist",
+  "content_strategist",
 ] as const;
 
 export type ProvocationType = typeof provocationType[number];
+
+// ── Persona JSON Schema ──
+// Central definition for all personas. Each persona can generate challenges
+// and advice through separate invocations. The persona is included in every
+// challenge/advice output so the dialogue panel knows who is speaking.
+
+export const personaColorSchema = z.object({
+  text: z.string(),       // tailwind text color class e.g. "text-cyan-600 dark:text-cyan-400"
+  bg: z.string(),         // tailwind bg color class e.g. "bg-cyan-50 dark:bg-cyan-950/30"
+  accent: z.string(),     // accent hex color for charts/highlights e.g. "#0891b2"
+});
+
+export type PersonaColor = z.infer<typeof personaColorSchema>;
+
+export const personaPromptsSchema = z.object({
+  challenge: z.string(),  // system prompt for generating challenges from this persona
+  advice: z.string(),     // system prompt for generating advice from this persona
+});
+
+export type PersonaPrompts = z.infer<typeof personaPromptsSchema>;
+
+export const personaSummarySchema = z.object({
+  challenge: z.string(),  // short tooltip-style summary of challenge behavior
+  advice: z.string(),     // short tooltip-style summary of advice behavior
+});
+
+export type PersonaSummary = z.infer<typeof personaSummarySchema>;
+
+// ── Persona domain & hierarchy ──
+// Personas are organized in a strict hierarchy under the Master Researcher root.
+// Each persona belongs to a domain (industry/discipline) and can have a parent.
+
+export const personaDomain = [
+  "root",        // Master Researcher only
+  "technology",  // Architect, QA, Security, Cybersecurity, Data Architect, UX, Tech Writer
+  "business",    // CEO, Product Manager, Think Bigger
+  "marketing",   // Growth Strategist, Brand Strategist, Content Strategist
+] as const;
+
+export type PersonaDomain = typeof personaDomain[number];
+
+export const personaSchema = z.object({
+  id: z.string(),                           // unique key e.g. "architect" (matches ProvocationType)
+  label: z.string(),                        // display name e.g. "Architect", "CEO"
+  icon: z.string(),                         // lucide icon name e.g. "Blocks", "Rocket"
+  role: z.string(),                         // one-line role summary
+  description: z.string(),                  // longer description of what this persona does
+  color: personaColorSchema,                // color scheme for rendering
+  prompts: personaPromptsSchema,            // system prompts for challenge and advice generation
+  summary: personaSummarySchema,            // short UI tooltip descriptions
+  isBuiltIn: z.boolean().default(true),     // true for built-in personas; false for user-created
+  // ── Hierarchy fields ──
+  domain: z.enum(personaDomain).default("technology"), // industry/discipline grouping
+  parentId: z.string().nullable().default(null),       // parent persona ID (null = root)
+  lastResearchedAt: z.string().nullable().default(null), // ISO timestamp of last research refresh
+  // ── Human curation lock ──
+  humanCurated: z.boolean().default(false),            // true = human-refined, Master Researcher must not auto-modify
+  curatedBy: z.string().nullable().default(null),      // Clerk userId who curated this persona
+  curatedAt: z.string().nullable().default(null),      // ISO timestamp of last human curation
+});
+
+export type Persona = z.infer<typeof personaSchema>;
+
+// ── Document types ──
+// A document type defines the mission/purpose for the AI Writer.
+// "notepad" is the default for untyped documents.
+// Each type maps to LLM system guidance in server/context-builder.ts.
+
+export const documentTypes = [
+  "notepad",
+  "prompt",
+  "prd",
+  "app-spec",
+  "research",
+  "persona",
+  "email",
+] as const;
+
+export type DocumentType = typeof documentTypes[number];
+
+export const documentTypeLabels: Record<DocumentType, string> = {
+  notepad: "Notepad",
+  prompt: "Prompt (AIM)",
+  prd: "Feature PRD",
+  "app-spec": "App Spec",
+  research: "Research",
+  persona: "Persona / Agent",
+  email: "Email",
+};
+
+// ── Application template IDs ──
+// Every application requires three coordinated definitions:
+//   1. PrebuiltTemplate in client/src/lib/prebuiltTemplates.ts (UI identity)
+//   2. AppFlowConfig in client/src/lib/appWorkspaceConfig.ts (workspace behavior)
+//   3. AppTypeConfig in server/context-builder.ts (LLM system guidance)
+// See ADR "Adding a New Application" in CLAUDE.md.
+
+export const templateIds = [
+  "write-a-prompt",
+  "gpt-to-context",
+  "product-requirement",
+  "new-application",
+  "streaming",
+  "persona-definition",
+  "voice-capture",
+  "text-to-infographic",
+  "email-composer",
+  "agent-editor",
+  "bs-chart",
+  "timeline",
+] as const;
+
+export type TemplateId = typeof templateIds[number];
+
+// ── Challenge schema ──
+// A challenge is generated by a persona based on the document and objective.
+// It presents a problem/gap without providing advice (advice is separate).
+
+export const challengeSchema = z.object({
+  id: z.string(),
+  persona: personaSchema,                   // the full persona definition that issued this challenge
+  title: z.string(),                        // punchy headline (max 60 chars)
+  content: z.string(),                      // 2-3 sentence challenge explanation
+  sourceExcerpt: z.string(),               // relevant quote from the document (max 150 chars)
+  status: z.enum(["pending", "addressed", "rejected", "highlighted"]),
+  scale: z.number().min(1).max(5).optional(), // impact: 1=minor to 5=critical
+});
+
+export type Challenge = z.infer<typeof challengeSchema>;
+
+// ── Advice schema ──
+// Advice is generated on-demand for a specific challenge, from the same persona.
+// Requires a separate invocation so it is not a reiteration of the challenge.
+
+export const adviceStatusValues = ["pending", "accepted", "rejected", "modified"] as const;
+
+export const adviceSchema = z.object({
+  id: z.string(),
+  challengeId: z.string(),                 // links back to the originating challenge
+  persona: personaSchema,                   // same persona that issued the challenge
+  content: z.string(),                      // the advice text from this persona's perspective
+  status: z.enum(adviceStatusValues),
+  modifiedContent: z.string().optional(),   // user's edited version (when status === "modified")
+});
+
+export type Advice = z.infer<typeof adviceSchema>;
+
+// ── Generate challenge request ──
+
+export const generateChallengeRequestSchema = z.object({
+  document: z.string().min(1, "Document is required"),         // current draft to challenge
+  objective: z.string().optional(),                            // what the document is trying to achieve (LLM infers if missing)
+  personaIds: z.array(z.string()).optional(),                  // filter to specific personas; empty = all
+  guidance: z.string().optional(),                             // user-specific focus area
+  referenceDocuments: z.array(z.lazy(() => referenceDocumentSchema)).optional(),
+  appType: z.enum(templateIds).optional(),                      // application template — must match a templateIds entry
+});
+
+export type GenerateChallengeRequest = z.infer<typeof generateChallengeRequestSchema>;
+
+// ── Generate advice request ──
+
+export const generateAdviceRequestSchema = z.object({
+  document: z.string().min(1, "Document is required"),        // current draft — the persona reads this
+  objective: z.string().optional(),                           // what the document is trying to achieve (LLM infers if missing)
+  appType: z.enum(templateIds).optional(),                     // application template — must match a templateIds entry
+  challengeId: z.string().min(1, "Challenge ID is required"), // which challenge to advise on
+  challengeTitle: z.string().min(1, "Challenge title is required"),
+  challengeContent: z.string().min(1, "Challenge content is required"),
+  personaId: z.string().min(1, "Persona ID is required"),     // which persona generates the advice
+  discussionHistory: z.array(z.object({
+    role: z.string(),
+    content: z.string(),
+    topic: z.string().optional(),
+  })).optional(), // recent discussion for grounding
+});
+
+export type GenerateAdviceRequest = z.infer<typeof generateAdviceRequestSchema>;
+
+// ── Legacy provocation schema (kept for backwards compatibility) ──
+
+export const provocationScale = [1, 2, 3, 4, 5] as const;
+export type ProvocationScale = typeof provocationScale[number];
 
 export const provocationSchema = z.object({
   id: z.string(),
@@ -39,6 +211,8 @@ export const provocationSchema = z.object({
   content: z.string(),
   sourceExcerpt: z.string(),
   status: z.enum(["pending", "addressed", "rejected", "highlighted"]),
+  scale: z.number().min(1).max(5).optional(),
+  autoSuggestion: z.string().optional(),
 });
 
 export type Provocation = z.infer<typeof provocationSchema>;
@@ -73,24 +247,34 @@ export const documentSchema = z.object({
 
 export type Document = z.infer<typeof documentSchema>;
 
-// Reference document types (style guides, templates, prior examples)
+// ── Captured context items (landing page context capture) ──
+
+export const contextItemTypes = ["text", "image", "document-link"] as const;
+export type ContextItemType = typeof contextItemTypes[number];
+
+export const contextItemSchema = z.object({
+  id: z.string(),
+  type: z.enum(contextItemTypes),
+  /** The content: plain text, base64 image data URL, or a document URL */
+  content: z.string(),
+  /** User annotation explaining why this context item matters */
+  annotation: z.string().optional(),
+  createdAt: z.number(),
+});
+
+export type ContextItem = z.infer<typeof contextItemSchema>;
+
+// Reference document types (style guides, templates)
 export const referenceDocumentSchema = z.object({
   id: z.string(),
   name: z.string(),
   content: z.string(),
-  type: z.enum(["style", "template", "example"]),
+  type: z.enum(["style", "template"]),
 });
 
 export type ReferenceDocument = z.infer<typeof referenceDocumentSchema>;
 
 // API request schemas - used by both frontend and backend
-export const analyzeTextRequestSchema = z.object({
-  text: z.string().min(1, "Text is required"),
-  selectedLenses: z.array(z.enum(lensTypes)).optional(),
-  referenceDocuments: z.array(referenceDocumentSchema).optional(),
-});
-
-export type AnalyzeTextRequest = z.infer<typeof analyzeTextRequestSchema>;
 
 // Unified write request - single interface to the AI writer
 export const provocationContextSchema = z.object({
@@ -124,9 +308,12 @@ export const editHistoryEntrySchema = z.object({
 export type EditHistoryEntry = z.infer<typeof editHistoryEntrySchema>;
 
 export const writeRequestSchema = z.object({
-  // Foundation (always required)
+  // Foundation
   document: z.string().min(1, "Document is required"),
-  objective: z.string().min(1, "Objective is required"),
+  objective: z.string().optional(),
+
+  // Application type — tells the LLM what kind of document this is (e.g. "query-editor")
+  appType: z.enum(templateIds).optional(),
 
   // Focus (optional - what part of document)
   selectedText: z.string().optional(),
@@ -136,7 +323,6 @@ export const writeRequestSchema = z.object({
 
   // Context (optional - additional grounding)
   provocation: provocationContextSchema.optional(),
-  activeLens: z.enum(lensTypes).optional(),
 
   // Style (optional)
   tone: z.enum(toneOptions).optional(),
@@ -144,6 +330,12 @@ export const writeRequestSchema = z.object({
 
   // Reference documents for style inference
   referenceDocuments: z.array(referenceDocumentSchema).optional(),
+
+  // Captured context items for grounding (from landing page context capture)
+  capturedContext: z.array(contextItemSchema).optional(),
+
+  // Session notes — temporary working notes provided alongside the document (e.g. PM notes)
+  sessionNotes: z.string().optional(),
 
   // Edit history for coherent iteration
   editHistory: z.array(editHistoryEntrySchema).optional(),
@@ -177,15 +369,1137 @@ export interface DocumentVersion {
   description: string;
 }
 
-// Workspace state for context provider
+// Direction mode for provoke panel (challenge = push back, advise = suggest improvements)
+export const directionModes = ["challenge", "advise"] as const;
+export type DirectionMode = typeof directionModes[number];
+
+// CEO vectors — high-impact dimensions for scaling products
+export const thinkBigVectors = [
+  "tenancy_topology",
+  "api_surface",
+  "scaling_horizon",
+  "data_residency",
+  "integration_philosophy",
+  "identity_access",
+  "observability",
+] as const;
+export type ThinkBigVector = typeof thinkBigVectors[number];
+
+// Interview entry - a single Q&A pair from the interview flow
+export const interviewEntrySchema = z.object({
+  id: z.string(),
+  question: z.string(),
+  answer: z.string(),
+  topic: z.string(),
+  timestamp: z.number(),
+});
+
+export type InterviewEntry = z.infer<typeof interviewEntrySchema>;
+
+// ── Discussion message types (enhanced discussion panel) ──
+
+// A single persona perspective in a multi-persona response
+export const personaPerspectiveSchema = z.object({
+  personaId: z.string(),
+  personaLabel: z.string(),
+  content: z.string(),
+});
+
+export type PersonaPerspective = z.infer<typeof personaPerspectiveSchema>;
+
+// Discussion message — supports both AI questions and user questions
+export const discussionMessageSchema = z.object({
+  id: z.string(),
+  role: z.enum(["system-question", "user-answer", "user-question", "persona-response"]),
+  content: z.string(),
+  topic: z.string().optional(),
+  timestamp: z.number(),
+  // For persona responses — individual perspectives from each relevant persona
+  perspectives: z.array(personaPerspectiveSchema).optional(),
+  // Interaction status for persona responses
+  status: z.enum(["pending", "accepted", "dismissed"]).optional(),
+  // Advice loaded on demand for system questions
+  advice: z.string().optional(),
+  advicePersonaId: z.string().optional(),
+  adviceLoading: z.boolean().optional(),
+});
+
+export type DiscussionMessage = z.infer<typeof discussionMessageSchema>;
+
+// Ask question request — user asks a question to the persona team
+export const askQuestionRequestSchema = z.object({
+  question: z.string().min(1, "Question is required"),
+  document: z.string().min(1, "Document is required"),
+  objective: z.string().min(1, "Objective is required"),
+  secondaryObjective: z.string().optional(),
+  activePersonas: z.array(z.string()).optional(),
+  previousMessages: z.array(discussionMessageSchema).optional(),
+  appType: z.enum(templateIds).optional(),
+  /** Session context — pinned documents and captured items passed as grounding */
+  capturedContext: z.array(contextItemSchema).optional(),
+});
+
+export type AskQuestionRequest = z.infer<typeof askQuestionRequestSchema>;
+
+// Ask question response — multi-persona response
+export interface AskQuestionResponse {
+  answer: string;
+  perspectives: PersonaPerspective[];
+  relevantPersonas: string[];
+  topic: string;
+}
+
+// Interview question request - generates the next provocative question
+export const interviewQuestionRequestSchema = z.object({
+  objective: z.string().min(1, "Objective is required"),
+  document: z.string().optional(),
+  appType: z.enum(templateIds).optional(),
+  template: z.string().optional(),
+  previousEntries: z.array(interviewEntrySchema).optional(),
+  provocations: z.array(provocationSchema).optional(),
+  // Direction parameters for the provoke panel
+  directionMode: z.enum(directionModes).optional(),
+  directionPersonas: z.array(z.enum(provocationType)).optional(),
+  directionGuidance: z.string().optional(),
+  thinkBigVectors: z.array(z.enum(thinkBigVectors)).optional(),
+  // Timeline context for autobiography interviews — date ranges, places, themes from existing events
+  timelineContext: z.object({
+    dateRange: z.object({ earliest: z.string(), latest: z.string() }).optional(),
+    places: z.array(z.string()).optional(),
+    themes: z.array(z.string()).optional(),
+    eventCount: z.number().optional(),
+  }).optional(),
+});
+
+export type InterviewQuestionRequest = z.infer<typeof interviewQuestionRequestSchema>;
+
+// Interview question response
+export interface InterviewQuestionResponse {
+  question: string;
+  topic: string;
+  reasoning: string;
+}
+
+// Interview summary request - summarize all entries for merge
+export const interviewSummaryRequestSchema = z.object({
+  objective: z.string().min(1, "Objective is required"),
+  entries: z.array(interviewEntrySchema).min(1, "At least one entry is required"),
+  document: z.string().optional(),
+  appType: z.enum(templateIds).optional(),
+});
+
+export type InterviewSummaryRequest = z.infer<typeof interviewSummaryRequestSchema>;
+
+// Podcast generation request - generates a podcast from interview Q&A
+export const podcastRequestSchema = z.object({
+  objective: z.string().min(1, "Objective is required"),
+  entries: z.array(interviewEntrySchema).min(1, "At least one entry is required"),
+  document: z.string().optional(),
+  appType: z.enum(templateIds).optional(),
+});
+
+export type PodcastRequest = z.infer<typeof podcastRequestSchema>;
+
+// Podcast generation response
+export interface PodcastResponse {
+  audio: string;       // base64-encoded audio (mp3)
+  mimeType: string;    // "audio/mp3"
+  script: PodcastSegment[];
+}
+
+export interface PodcastSegment {
+  speaker: "alex" | "jordan";
+  text: string;
+}
+
 export interface WorkspaceState {
   document: Document | null;
   objective: string;
   referenceDocuments: ReferenceDocument[];
   editHistory: EditHistoryEntry[];
-  lenses: Lens[];
-  activeLens: LensType | null;
   provocations: Provocation[];
   outline: OutlineItem[];
   currentPhase: "input" | "blank-document" | "workspace";
+}
+
+// Document type for icon display in the Context Store
+export const docTypes = ["document", "image", "timeline", "chart", "note"] as const;
+export type DocType = (typeof docTypes)[number];
+
+// Document save/load schemas (server-side encryption, Clerk auth for ownership)
+export const saveDocumentRequestSchema = z.object({
+  title: z.string().min(1, "Title is required").max(200),
+  content: z.string().min(1, "Content is required"),
+  folderId: z.number().nullable().optional(),
+  docType: z.enum(docTypes).optional(),
+});
+
+export type SaveDocumentRequest = z.infer<typeof saveDocumentRequestSchema>;
+
+export const updateDocumentRequestSchema = z.object({
+  title: z.string().min(1, "Title is required").max(200),
+  content: z.string().min(1, "Content is required"),
+  folderId: z.number().nullable().optional(),
+});
+
+export const renameDocumentRequestSchema = z.object({
+  title: z.string().min(1, "Title is required").max(200),
+});
+
+export type RenameDocumentRequest = z.infer<typeof renameDocumentRequestSchema>;
+
+export type UpdateDocumentRequest = z.infer<typeof updateDocumentRequestSchema>;
+
+export interface DocumentListItem {
+  id: number;
+  title: string;
+  folderId?: number | null;
+  locked?: boolean;
+  docType?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocumentPayload {
+  id: number;
+  title: string;
+  content: string;
+  folderId?: number | null;
+  locked?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Folder schemas
+export const createFolderRequestSchema = z.object({
+  name: z.string().min(1, "Name is required").max(200),
+  parentFolderId: z.number().nullable().optional(),
+});
+
+export type CreateFolderRequest = z.infer<typeof createFolderRequestSchema>;
+
+export const renameFolderRequestSchema = z.object({
+  name: z.string().min(1, "Name is required").max(200),
+});
+
+export type RenameFolderRequest = z.infer<typeof renameFolderRequestSchema>;
+
+export const moveDocumentRequestSchema = z.object({
+  folderId: z.number().nullable(),
+});
+
+export type MoveDocumentRequest = z.infer<typeof moveDocumentRequestSchema>;
+
+export const moveFolderRequestSchema = z.object({
+  parentFolderId: z.number().nullable(),
+});
+
+export type MoveFolderRequest = z.infer<typeof moveFolderRequestSchema>;
+
+export interface FolderItem {
+  id: number;
+  name: string;
+  parentFolderId: number | null;
+  locked?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Streaming provocation type ──
+// Streaming supports requirement discovery through a side-by-side wireframe + dialogue experience.
+
+export const workspaceMode = ["standard", "streaming"] as const;
+export type WorkspaceMode = typeof workspaceMode[number];
+
+// A single entry in the streaming dialogue (agent question + user answer)
+export const streamingDialogueEntrySchema = z.object({
+  id: z.string(),
+  role: z.enum(["agent", "user"]),
+  content: z.string(),
+  timestamp: z.number(),
+});
+
+export type StreamingDialogueEntry = z.infer<typeof streamingDialogueEntrySchema>;
+
+// A single requirement extracted from the streaming dialogue
+export const streamingRequirementSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  status: z.enum(["draft", "confirmed", "revised"]),
+  timestamp: z.number(),
+});
+
+export type StreamingRequirement = z.infer<typeof streamingRequirementSchema>;
+
+// Request to generate the next streaming question
+export const streamingQuestionRequestSchema = z.object({
+  objective: z.string().min(1, "Objective is required"),
+  document: z.string().optional(),
+  websiteUrl: z.string().optional(),
+  wireframeNotes: z.string().optional(),
+  previousEntries: z.array(streamingDialogueEntrySchema).optional(),
+  requirements: z.array(streamingRequirementSchema).optional(),
+});
+
+export type StreamingQuestionRequest = z.infer<typeof streamingQuestionRequestSchema>;
+
+// Response from streaming question endpoint
+export interface StreamingQuestionResponse {
+  question: string;
+  topic: string;
+  suggestedRequirement?: string;
+}
+
+// Request to analyze wireframe components
+export const wireframeAnalysisRequestSchema = z.object({
+  objective: z.string().min(1, "Objective is required"),
+  websiteUrl: z.string().optional(),
+  wireframeNotes: z.string().optional(),
+  document: z.string().optional(),
+});
+
+export type WireframeAnalysisRequest = z.infer<typeof wireframeAnalysisRequestSchema>;
+
+// Structured content discovery item
+export interface SiteMapEntry {
+  url: string;
+  title: string;
+  depth: number; // 0 = landing page, 1 = direct child, etc.
+}
+
+export interface DiscoveredMedia {
+  url: string;
+  title: string;
+  type?: string; // e.g. "mp4", "webm", "mp3", "rss+xml"
+}
+
+// Response from wireframe analysis
+export interface WireframeAnalysisResponse {
+  analysis: string;
+  components: string[];
+  suggestions: string[];
+  // Structured content discovery (populated async)
+  siteMap?: SiteMapEntry[];
+  videos?: DiscoveredMedia[];
+  audioContent?: DiscoveredMedia[];
+  rssFeeds?: DiscoveredMedia[];
+  images?: DiscoveredMedia[];
+  primaryContent?: string; // Main textual content extracted from the site
+  contentScanStatus?: "pending" | "scanning" | "complete";
+}
+
+// Wireframe analysis schema for passing to refine endpoint
+export const wireframeAnalysisSchema = z.object({
+  analysis: z.string(),
+  components: z.array(z.string()),
+  suggestions: z.array(z.string()),
+  siteMap: z.array(z.object({
+    url: z.string(),
+    title: z.string(),
+    depth: z.number(),
+  })).optional(),
+  videos: z.array(z.object({ url: z.string(), title: z.string(), type: z.string().optional() })).optional(),
+  audioContent: z.array(z.object({ url: z.string(), title: z.string(), type: z.string().optional() })).optional(),
+  rssFeeds: z.array(z.object({ url: z.string(), title: z.string(), type: z.string().optional() })).optional(),
+  images: z.array(z.object({ url: z.string(), title: z.string(), type: z.string().optional() })).optional(),
+  primaryContent: z.string().optional(),
+  contentScanStatus: z.enum(["pending", "scanning", "complete"]).optional(),
+}).optional();
+
+// Request to refine requirements from streaming dialogue
+export const streamingRefineRequestSchema = z.object({
+  objective: z.string().min(1, "Objective is required"),
+  dialogueEntries: z.array(streamingDialogueEntrySchema).min(1, "At least one dialogue entry is required"),
+  existingRequirements: z.array(streamingRequirementSchema).optional(),
+  document: z.string().optional(),
+  websiteUrl: z.string().optional(),
+  wireframeAnalysis: wireframeAnalysisSchema,
+});
+
+export type StreamingRefineRequest = z.infer<typeof streamingRefineRequestSchema>;
+
+export interface StreamingRefineResponse {
+  requirements: StreamingRequirement[];
+  updatedDocument: string;
+  summary: string;
+}
+
+// ── Tracking event types (no user-inputted text is stored) ──
+
+export const trackingEventType = [
+  // ── Session lifecycle ──
+  "login",                    // User signed in / loaded the app
+  "page_view",                // User viewed a page/phase
+  "phase_changed",            // Workspace phase changed (input → workspace)
+
+  // ── Template & app selection ──
+  "template_selected",        // User selected a prebuilt template
+  "app_switched",             // Toolbox app switched (provoke/website/context/analyzer)
+
+  // ── Persona interactions ──
+  "persona_selected",         // User selected a persona
+  "persona_deselected",       // User deselected a persona
+
+  // ── Challenge / provocation lifecycle ──
+  "challenge_generated",      // Challenges were generated
+  "challenge_addressed",      // User addressed a challenge
+  "challenge_rejected",       // User rejected a challenge
+  "challenge_highlighted",    // User highlighted/starred a challenge
+  "challenge_response_voice", // User responded to challenge via voice
+  "challenge_response_text",  // User responded to challenge via text note
+  "advice_requested",         // User requested advice on a challenge
+  "advice_accepted",          // User incorporated advice into document
+  "suggestion_accepted",      // User accepted an auto-suggestion on a challenge
+  "suggestion_dismissed",     // User dismissed an auto-suggestion
+
+  // ── Interview flow ──
+  "interview_started",        // Interview flow started
+  "interview_answer",         // User submitted an interview answer
+  "interview_skip",           // User skipped an interview question
+  "interview_advice_viewed",  // User viewed advice for interview question
+  "interview_ended",          // User ended the interview
+  "interview_merged",         // Interview entries merged into document
+
+  // ── Discussion ──
+  "discussion_asked",         // User asked a question in discussion
+
+  // ── Document authoring ──
+  "document_created",         // New document started
+  "write_executed",           // Write/edit instruction executed
+  "document_edit_inline",     // User applied inline edit via selection
+  "document_feedback_sent",   // User sent feedback/instruction on document
+
+  // ── Document persistence ──
+  "document_saved",           // Document saved to context store
+  "document_loaded",          // Document loaded from context store
+  "document_deleted",         // Document deleted from context store
+  "document_renamed",         // Document renamed
+
+  // ── Document export ──
+  "document_downloaded",      // User downloaded document (markdown/zip)
+  "document_copied",          // User copied document text to clipboard
+  "document_summarized",      // User summarized document in preview panel
+
+  // ── Context store operations ──
+  "folder_created",           // User created a folder
+  "folder_deleted",           // User deleted a folder
+  "folder_renamed",           // User renamed a folder
+  "file_uploaded",            // User uploaded a file to context store
+
+  // ── Voice input ──
+  "voice_recorded",           // User recorded voice input
+  "voice_started",            // Voice recording started
+  "voice_stopped",            // Voice recording stopped
+
+  // ── Smart text actions ──
+  "text_cleaned",             // User used Clean action on text
+  "text_summarized",          // User used Summarize action on text
+  "text_copied",              // User copied text from any panel
+
+  // ── Version management ──
+  "version_diff_viewed",      // User toggled diff/version comparison
+
+  // ── Website/streaming analysis ──
+  "website_analyzed",         // Website URL analysis triggered
+  "screen_captured",          // Screen capture taken
+
+  // ── Tab management ──
+  "tab_created",              // User created a new tab
+  "tab_closed",               // User closed a tab
+  "tab_switched",             // User switched between tabs
+
+  // ── Image generation ──
+  "text_to_visual_generated", // User generated a visual from document/transcript
+  "artify_generated",         // User generated an image via Artify panel
+  "transcript_text_to_visual", // User generated a visual from transcript
+  "transcript_cleaned",       // User cleaned transcript text
+  "transcript_summarized",    // User summarized transcript text
+
+  // ── Notes management ──
+  "note_saved_to_context",    // User saved an individual note to Context Store
+  "note_moved_to_document",   // User moved a note's content into the document
+  "note_text_to_visual",      // User generated a visual from notes
+  "document_saved_to_context", // User saved the document to Context Store
+  "writer_invoked",           // Writer was called to evolve document
+  "painter_generated",        // User generated an image via Painter panel
+
+  // ── Mobile capture ──
+  "mobile_note_captured",     // User captured a note from mobile
+
+  // ── Podcast ──
+  "podcast_generated",        // User generated a podcast from interview Q&A
+
+  // ── Timeline ──
+  "notes_mapped_to_timeline", // User mapped notes to timeline events via LLM
+] as const;
+
+export type TrackingEventType = typeof trackingEventType[number];
+
+export const trackingEventSchema = z.object({
+  eventType: z.enum(trackingEventType),
+  personaId: z.string().optional(),        // which persona, if applicable
+  templateId: z.string().optional(),       // which template, if applicable
+  appSection: z.string().optional(),       // which toolbox app (provoke/website/context/analyzer)
+  metadata: z.record(z.string()).optional(), // additional non-PII metadata (counts, durations, etc.)
+});
+
+export type TrackingEvent = z.infer<typeof trackingEventSchema>;
+
+// ── Persona hierarchy helpers ──
+
+export interface PersonaHierarchyNode {
+  persona: Persona;
+  children: PersonaHierarchyNode[];
+}
+
+// ── Admin dashboard response types ──
+
+export interface PersonaUsageStat {
+  personaId: string;
+  personaLabel: string;
+  domain: string;
+  usageCount: number;
+  lastUsedAt: string | null;
+}
+
+export interface TrackingEventStat {
+  eventType: string;
+  count: number;
+}
+
+export interface AdminDashboardData {
+  personaUsage: PersonaUsageStat[];
+  eventBreakdown: TrackingEventStat[];
+  totalEvents: number;
+  totalSessions: number;
+  avgDocumentGenerationMs: number;
+  storageMetadata: {
+    folderCount: number;
+    maxFolderDepth: number;
+    documentCount: number;
+  };
+}
+
+// ── Event category mapping for admin dashboard ──
+
+export const EVENT_CATEGORIES: Record<string, { label: string; color: string; events: readonly string[] }> = {
+  session: {
+    label: "Session",
+    color: "#6366f1",
+    events: ["login", "page_view", "phase_changed"],
+  },
+  appSelection: {
+    label: "App Selection",
+    color: "#8b5cf6",
+    events: ["template_selected", "app_switched"],
+  },
+  challenges: {
+    label: "Challenges",
+    color: "#f59e0b",
+    events: [
+      "challenge_generated", "challenge_addressed", "challenge_rejected",
+      "challenge_highlighted", "challenge_response_voice", "challenge_response_text",
+      "advice_requested", "advice_accepted", "suggestion_accepted", "suggestion_dismissed",
+    ],
+  },
+  interview: {
+    label: "Interview",
+    color: "#10b981",
+    events: [
+      "interview_started", "interview_answer", "interview_skip",
+      "interview_advice_viewed", "interview_ended", "interview_merged",
+    ],
+  },
+  authoring: {
+    label: "Authoring",
+    color: "#3b82f6",
+    events: [
+      "document_created", "write_executed", "document_edit_inline",
+      "document_feedback_sent", "discussion_asked",
+    ],
+  },
+  persistence: {
+    label: "Storage",
+    color: "#14b8a6",
+    events: [
+      "document_saved", "document_loaded", "document_deleted", "document_renamed",
+      "folder_created", "folder_deleted", "folder_renamed", "file_uploaded",
+    ],
+  },
+  export: {
+    label: "Export",
+    color: "#ec4899",
+    events: ["document_downloaded", "document_copied"],
+  },
+  voice: {
+    label: "Voice",
+    color: "#f97316",
+    events: ["voice_recorded", "voice_started", "voice_stopped"],
+  },
+  textActions: {
+    label: "Smart Text",
+    color: "#a855f7",
+    events: ["text_cleaned", "text_summarized", "text_copied"],
+  },
+  workspace: {
+    label: "Workspace",
+    color: "#64748b",
+    events: [
+      "version_diff_viewed", "website_analyzed", "screen_captured",
+      "tab_created", "tab_closed", "tab_switched",
+      "persona_selected", "persona_deselected",
+    ],
+  },
+};
+
+/** Categorized event report returned by /api/admin/event-report */
+export interface EventCategoryReport {
+  categories: {
+    id: string;
+    label: string;
+    color: string;
+    totalCount: number;
+    events: { eventType: string; count: number }[];
+  }[];
+  dailyTimeline: {
+    date: string;
+    total: number;
+    byCategory: Record<string, number>;
+  }[];
+  totalEvents: number;
+  totalSessions: number;
+  uniqueUsers: number;
+}
+
+// ── Usage metrics (per-user cumulative) ──
+
+export interface UserMetricRow {
+  userId: string;
+  metricKey: string;
+  metricValue: number;
+  updatedAt: string;
+}
+
+/** Shape returned by the admin metrics matrix endpoint */
+export interface UserMetricsMatrix {
+  /** All metric keys across all users, sorted by importance */
+  metricKeys: string[];
+  /** One entry per user with their email/name and metric values */
+  users: {
+    userId: string;
+    email: string;
+    displayName: string;
+    lastSeenAt: string | null;
+    metrics: Record<string, number>;
+  }[];
+}
+
+// ── Persona version (archival) ──
+
+export interface PersonaVersion {
+  id: number;
+  personaId: string;
+  version: number;
+  definition: string; // JSON-serialized Persona
+  createdAt: string;
+}
+
+// ── Pipeline artifact types (YouTube / Voice → Infographic) ──
+
+export const artifactTypes = ["transcript", "summary", "infographic"] as const;
+export type ArtifactType = typeof artifactTypes[number];
+
+export const artifactSourceTypes = ["youtube", "voice-capture"] as const;
+export type ArtifactSourceType = typeof artifactSourceTypes[number];
+
+export const artifactStatuses = ["pending", "processing", "complete", "error"] as const;
+export type ArtifactStatus = typeof artifactStatuses[number];
+
+// Schema for a video item returned when fetching a YouTube channel
+export const youtubeVideoSchema = z.object({
+  videoId: z.string(),
+  title: z.string(),
+  description: z.string(),
+  publishedAt: z.string(),
+  thumbnailUrl: z.string(),
+  channelTitle: z.string(),
+});
+
+export type YouTubeVideo = z.infer<typeof youtubeVideoSchema>;
+
+// Request to fetch videos from a YouTube channel
+export const youtubeChannelRequestSchema = z.object({
+  channelUrl: z.string().min(1, "YouTube channel URL is required"),
+  maxResults: z.number().min(1).max(50).default(10),
+});
+
+export type YouTubeChannelRequest = z.infer<typeof youtubeChannelRequestSchema>;
+
+// Response from channel fetch
+export interface YouTubeChannelResponse {
+  channelTitle: string;
+  channelId: string;
+  videos: YouTubeVideo[];
+}
+
+// Request to process a YouTube video transcript
+export const processVideoRequestSchema = z.object({
+  videoId: z.string().min(1, "Video ID is required"),
+  videoUrl: z.string().min(1, "Video URL is required"),
+  videoTitle: z.string().optional(),
+  thumbnailUrl: z.string().optional(),
+});
+
+export type ProcessVideoRequest = z.infer<typeof processVideoRequestSchema>;
+
+// Request to process an uploaded voice transcript
+export const processTranscriptUploadRequestSchema = z.object({
+  transcript: z.string().min(1, "Transcript content is required"),
+  title: z.string().optional(),
+  objective: z.string().optional(),
+});
+
+export type ProcessTranscriptUploadRequest = z.infer<typeof processTranscriptUploadRequestSchema>;
+
+// Request to generate a summary from a transcript
+export const generateSummaryRequestSchema = z.object({
+  transcript: z.string().min(1, "Transcript is required"),
+  title: z.string().optional(),
+  objective: z.string().optional(),
+  sourceType: z.enum(artifactSourceTypes),
+});
+
+export type GenerateSummaryRequest = z.infer<typeof generateSummaryRequestSchema>;
+
+// Summary response
+export interface GenerateSummaryResponse {
+  summary: string;
+  keyPoints: string[];
+  tips: string[];
+}
+
+// Request to generate an infographic spec from a summary
+export const generateInfographicRequestSchema = z.object({
+  summary: z.string().min(1, "Summary is required"),
+  keyPoints: z.array(z.string()),
+  tips: z.array(z.string()),
+  title: z.string().optional(),
+  sourceType: z.enum(artifactSourceTypes),
+});
+
+export type GenerateInfographicRequest = z.infer<typeof generateInfographicRequestSchema>;
+
+// Infographic section (one visual block in the infographic)
+export const infographicSectionSchema = z.object({
+  id: z.string(),
+  heading: z.string(),
+  content: z.string(),
+  icon: z.string(), // suggested lucide icon name
+  color: z.string(), // suggested accent color hex
+  dataPoints: z.array(z.string()).optional(),
+});
+
+export type InfographicSection = z.infer<typeof infographicSectionSchema>;
+
+// Full infographic spec returned by the generation endpoint
+export interface InfographicSpec {
+  title: string;
+  subtitle: string;
+  sections: InfographicSection[];
+  colorPalette: string[];
+  sourceLabel: string; // e.g. "YouTube: Channel Name" or "Voice Capture Session"
+}
+
+// Pipeline status — tracks overall processing progress
+export interface PipelineStatus {
+  pipelineId: string;
+  sourceType: ArtifactSourceType;
+  sourceTitle: string;
+  stages: {
+    transcript: ArtifactStatus;
+    summary: ArtifactStatus;
+    infographic: ArtifactStatus;
+  };
+  artifacts: {
+    transcriptUuid?: string;
+    summaryUuid?: string;
+    infographicUuid?: string;
+  };
+}
+
+// ── Clean-context chat schemas (research session) ──
+
+export const researchFocusModes = ["explore", "verify", "gather", "analyze", "synthesize", "reason", "deep-research"] as const;
+export type ResearchFocus = (typeof researchFocusModes)[number];
+
+// ── Response configuration (how the researcher responds, distinct from focus mode) ──
+
+export const responseDetailLevels = ["brief", "standard", "detailed", "exhaustive"] as const;
+export type ResponseDetailLevel = (typeof responseDetailLevels)[number];
+
+export const responseFormats = ["prose", "structured", "outline", "academic"] as const;
+export type ResponseFormat = (typeof responseFormats)[number];
+
+export const responseAudienceLevels = ["non-technical", "general", "technical", "expert"] as const;
+export type ResponseAudienceLevel = (typeof responseAudienceLevels)[number];
+
+export const responseTones = ["neutral", "conversational", "assertive", "critical"] as const;
+export type ResponseTone = (typeof responseTones)[number];
+
+export const responseConfigSchema = z.object({
+  detail: z.enum(responseDetailLevels).optional(),
+  format: z.enum(responseFormats).optional(),
+  audience: z.enum(responseAudienceLevels).optional(),
+  tone: z.enum(responseTones).optional(),
+});
+
+export type ResponseConfig = z.infer<typeof responseConfigSchema>;
+
+export const chatMessageSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string(),
+});
+
+export type ChatMessage = z.infer<typeof chatMessageSchema>;
+
+/** Extended chat message with metadata for display (not sent to API) */
+export interface ChatMessageWithMeta extends ChatMessage {
+  followUps?: string[];
+  durationMs?: number;
+  model?: string;
+  groundingSource?: "web" | "context" | "both";
+}
+
+/** Research plan step for Deep Research mode */
+export interface ResearchPlanStep {
+  area: string;
+  questions: string[];
+}
+
+/** Research plan generated before deep research execution */
+export interface ResearchPlan {
+  title: string;
+  estimatedTime: string;
+  steps: ResearchPlanStep[];
+}
+
+export const chatRequestSchema = z.object({
+  message: z.string().min(1, "Message is required"),
+  objective: z.string().min(1, "Objective is required"),
+  researchTopic: z.string().optional(),
+  notes: z.string().optional(),
+  history: z.array(chatMessageSchema).optional(),
+  appType: z.enum(templateIds).optional(),
+  chatModel: z.string().optional(),
+  researchFocus: z.enum(researchFocusModes).optional(),
+  responseConfig: responseConfigSchema.optional(),
+  researchPlan: z.string().optional(),
+});
+
+export type ChatRequest = z.infer<typeof chatRequestSchema>;
+
+export interface ChatResponse {
+  response: string;
+}
+
+export const summarizeSessionRequestSchema = z.object({
+  objective: z.string().min(1, "Objective is required"),
+  researchTopic: z.string().optional(),
+  notes: z.string().optional(),
+  chatHistory: z.array(chatMessageSchema).min(1, "At least one message is required"),
+  currentSummary: z.string().optional(),
+  appType: z.enum(templateIds).optional(),
+  chatModel: z.string().optional(),
+});
+
+export type SummarizeSessionRequest = z.infer<typeof summarizeSessionRequestSchema>;
+
+export interface SummarizeSessionResponse {
+  summary: string;
+}
+
+// ── Save chat session request (GPT-to-Context persistence) ──
+
+export const saveChatSessionRequestSchema = z.object({
+  /** Human-readable title for the saved session */
+  title: z.string().min(1, "Title is required").max(300),
+  /** Research topic that scoped the session */
+  researchTopic: z.string().optional(),
+  /** Objective the session worked toward */
+  objective: z.string().min(1, "Objective is required"),
+  /** Dynamic summary produced during the session */
+  summary: z.string().optional(),
+  /** User's working notes captured during the session */
+  notes: z.string().optional(),
+  /** Full chat history — stored as serialized reference */
+  chatHistory: z.array(chatMessageSchema).optional(),
+});
+
+export type SaveChatSessionRequest = z.infer<typeof saveChatSessionRequestSchema>;
+
+export interface SaveChatSessionResponse {
+  /** ID of the saved summary document (primary artifact) */
+  documentId: number;
+  /** ID of the "Chat to Context" folder */
+  folderId: number;
+  /** Optional: ID of the chat-log document (when chat history was provided) */
+  chatLogDocumentId?: number;
+}
+
+// ── App Launch Params ──
+// URL-based protocol for cross-app navigation.
+// Any app can invoke another by constructing: /?app=...&intent=...&entityType=...&entityId=...
+
+export const appLaunchParamsSchema = z.object({
+  app: z.string().optional(),                              // template ID — optional with path-based routing (/app/:templateId)
+  intent: z.enum(["create", "edit", "view"]).optional(),   // action to take
+  entityType: z.string().optional(),                       // what we're operating on (e.g. "persona")
+  entityId: z.string().optional(),                         // specific entity ID (e.g. "architect")
+  step: z.string().optional(),                             // which flow step to start at
+  source: z.string().optional(),                           // caller app (e.g. "admin")
+});
+
+export type AppLaunchParams = z.infer<typeof appLaunchParamsSchema>;
+
+// ── Agent Editor types ──
+// Structured step definitions for multi-step AI agent workflows.
+// Each step follows the Input → Actor → Output pattern.
+
+export const agentStepInputSchema = z.object({
+  source: z.enum(["user", "previous-step", "context"]),
+  description: z.string(),
+  sourceStepId: z.string().optional(),
+  dataType: z.enum(["text", "json", "table"]),
+});
+
+export const agentStepActorSchema = z.object({
+  systemPrompt: z.string(),
+  maxTokens: z.number().min(100).max(16384).default(2000),
+  temperature: z.number().min(0).max(2).default(0.7),
+});
+
+export const agentStepOutputSchema = z.object({
+  label: z.string(),
+  description: z.string(),
+  dataType: z.enum(["text", "json", "table", "markdown"]),
+  validationSchema: z.string().optional(),
+  validationRegex: z.string().optional(),
+  fallback: z.string().optional(),
+});
+
+export const agentStepSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  order: z.number(),
+  input: agentStepInputSchema,
+  actor: agentStepActorSchema,
+  output: agentStepOutputSchema,
+});
+
+export const agentDefinitionSchema = z.object({
+  agentId: z.string(),
+  name: z.string(),
+  description: z.string(),
+  persona: z.string(),
+  steps: z.array(agentStepSchema),
+});
+
+export type AgentStep = z.infer<typeof agentStepSchema>;
+export type AgentDefinition = z.infer<typeof agentDefinitionSchema>;
+export type AgentStepInput = z.infer<typeof agentStepInputSchema>;
+export type AgentStepActor = z.infer<typeof agentStepActorSchema>;
+export type AgentStepOutput = z.infer<typeof agentStepOutputSchema>;
+
+// ── Stripe / Payments ──────────────────────────────────────────────────
+
+export const createCheckoutSessionSchema = z.object({
+  priceId: z.string().min(1),
+});
+
+export const paymentRecordSchema = z.object({
+  id: z.number(),
+  userId: z.string(),
+  stripeSessionId: z.string(),
+  stripeCustomerId: z.string().nullable(),
+  stripePaymentIntentId: z.string().nullable(),
+  productId: z.string().nullable(),
+  priceId: z.string().nullable(),
+  amount: z.number().nullable(),
+  currency: z.string().nullable(),
+  status: z.string(),
+  createdAt: z.string(),
+});
+
+export type PaymentRecord = z.infer<typeof paymentRecordSchema>;
+
+// ══════════════════════════════════════════════════════════════════
+// Messaging — Schemas
+// ══════════════════════════════════════════════════════════════════
+
+export const connectionStatuses = ["pending", "accepted", "blocked"] as const;
+export type ConnectionStatus = typeof connectionStatuses[number];
+
+export const presenceStatuses = ["available", "busy", "away", "invisible"] as const;
+export type PresenceStatus = typeof presenceStatuses[number];
+
+export const messageTypes = ["text", "context-share"] as const;
+export type MessageType = typeof messageTypes[number];
+
+// ── Connection / invitation request ──
+
+export const sendInvitationRequestSchema = z.object({
+  email: z.string().email("Valid email required"),
+});
+export type SendInvitationRequest = z.infer<typeof sendInvitationRequestSchema>;
+
+export const respondInvitationRequestSchema = z.object({
+  connectionId: z.number(),
+  action: z.enum(["accept", "block", "decline"]),
+});
+export type RespondInvitationRequest = z.infer<typeof respondInvitationRequestSchema>;
+
+// ── Connection item (API response) ──
+
+export interface ConnectionItem {
+  id: number;
+  userId: string;  // the *other* user's ID
+  displayName: string;
+  email: string;
+  avatarUrl: string | null;
+  status: ConnectionStatus;
+  direction: "incoming" | "outgoing";
+  createdAt: string;
+}
+
+// ── Conversation list item ──
+
+export interface ConversationListItem {
+  id: number;
+  connectionId: number;
+  otherUser: {
+    userId: string;
+    displayName: string;
+    email: string;
+    avatarUrl: string | null;
+  };
+  lastMessage?: {
+    preview: string;      // first 80 chars, decrypted
+    senderId: string;
+    createdAt: string;
+  };
+  unreadCount: number;
+  lastActivityAt: string;
+}
+
+// ── Send message request ──
+
+export const sendMessageRequestSchema = z.object({
+  conversationId: z.number(),
+  content: z.string().min(1).max(10000),
+  messageType: z.enum(messageTypes).default("text"),
+  // For context-share: serialized reference JSON
+  contextRef: z.string().optional(),
+});
+export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>;
+
+// ── Message item (API response, decrypted) ──
+
+export interface MessageItem {
+  id: number;
+  conversationId: number;
+  senderId: string;
+  content: string;         // decrypted
+  messageType: MessageType;
+  contextRef?: string;     // decrypted context reference
+  readAt: string | null;
+  createdAt: string;
+}
+
+// ── Chat preferences (API shape) ──
+
+export const chatPreferencesSchema = z.object({
+  presenceStatus: z.enum(presenceStatuses).default("available"),
+  customStatusText: z.string().max(100).nullable().default(null),
+  notificationsEnabled: z.boolean().default(true),
+  notifyOnMentionOnly: z.boolean().default(false),
+  readReceiptsEnabled: z.boolean().default(true),
+  typingIndicatorsEnabled: z.boolean().default(true),
+  messageRetentionDays: z.number().min(1).max(30).default(7),
+  chatSoundEnabled: z.boolean().default(true),
+  compactMode: z.boolean().default(false),
+});
+export type ChatPreferencesData = z.infer<typeof chatPreferencesSchema>;
+
+// ══════════════════════════════════════════════════════════════════
+// Sharing — Document & Folder sharing between connected users
+// ══════════════════════════════════════════════════════════════════
+
+export const shareItemTypes = ["document", "folder"] as const;
+export type ShareItemType = typeof shareItemTypes[number];
+
+export const sharePermissions = ["read", "write"] as const;
+export type SharePermission = typeof sharePermissions[number];
+
+export const shareStatuses = ["pending", "accepted", "declined", "revoked"] as const;
+export type ShareStatus = typeof shareStatuses[number];
+
+export const shareItemRequestSchema = z.object({
+  recipientId: z.string().min(1, "Recipient ID required"),
+  itemType: z.enum(shareItemTypes),
+  itemId: z.number(),
+  permission: z.enum(sharePermissions).default("read"),
+  note: z.string().max(500).optional(),
+});
+export type ShareItemRequest = z.infer<typeof shareItemRequestSchema>;
+
+export const respondShareRequestSchema = z.object({
+  shareId: z.number(),
+  action: z.enum(["accept", "decline"]),
+});
+export type RespondShareRequest = z.infer<typeof respondShareRequestSchema>;
+
+/** Shared item as returned by the API (with display info) */
+export interface SharedItemDisplay {
+  id: number;
+  ownerId: string;
+  recipientId: string;
+  itemType: ShareItemType;
+  itemId: number;
+  permission: SharePermission;
+  status: ShareStatus;
+  note?: string;           // decrypted
+  itemTitle?: string;      // decrypted doc/folder title for display
+  ownerName?: string;
+  ownerEmail?: string;
+  ownerAvatar?: string | null;
+  recipientName?: string;
+  recipientEmail?: string;
+  recipientAvatar?: string | null;
+  createdAt: string;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Notifications — Global Mailbox
+// ══════════════════════════════════════════════════════════════════
+
+export const notificationTypes = [
+  "connection_request",    // someone wants to connect
+  "connection_accepted",   // your connection request was accepted
+  "item_shared",           // someone shared a doc/folder with you
+  "share_accepted",        // recipient accepted your share
+] as const;
+export type NotificationType = typeof notificationTypes[number];
+
+/** Notification as returned by the API (with display info) */
+export interface NotificationItem {
+  id: number;
+  userId: string;
+  notificationType: NotificationType;
+  fromUserId: string;
+  fromUserName?: string;
+  fromUserEmail?: string;
+  fromUserAvatar?: string | null;
+  metadata?: Record<string, any>;   // parsed JSON
+  readAt: string | null;
+  createdAt: string;
 }

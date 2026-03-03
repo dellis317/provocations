@@ -1,0 +1,1078 @@
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { generateId } from "@/lib/utils";
+import { trackEvent } from "@/lib/tracking";
+import { errorLogStore } from "@/lib/errorLog";
+import { useToast } from "@/hooks/use-toast";
+import { VoiceRecorder } from "@/components/VoiceRecorder";
+import { LlmHoverButton, type ContextBlock, type SummaryItem } from "@/components/LlmHoverButton";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Play,
+  Pause,
+  Loader2,
+  Send,
+  Mic,
+  MessageCircleQuestion,
+  SkipForward,
+  Lightbulb,
+  FileText,
+  Podcast,
+  Square,
+  X,
+  CheckCircle2,
+  Search,
+  Compass,
+  Clock,
+  Scale,
+  Target,
+  Volume2,
+  VolumeX,
+  Radio,
+  Info,
+  type LucideIcon,
+} from "lucide-react";
+import type {
+  InterviewEntry,
+  InterviewQuestionResponse,
+  PodcastResponse,
+  PodcastSegment,
+} from "@shared/schema";
+
+// ── Interview stance (Journalist approach styles) ──
+
+type InterviewStance = "investigative" | "exploratory" | "balanced" | "autobiography";
+
+function buildGuidance(stance: InterviewStance, focus: string, appType?: string): string | undefined {
+  const parts: string[] = [];
+  if (stance === "investigative") {
+    parts.push("STANCE: Investigative Journalist — be rigorous and analytical. Dig into claims, find logical gaps, demand specifics and evidence. Ask the hard 'how' and 'why' questions. Hold the interviewee accountable to their own stated goals.");
+  } else if (stance === "exploratory") {
+    parts.push("STANCE: Feature Journalist — be curious and exploratory. Ask 'what if', draw unexpected connections, explore the human story and motivations behind the document. Open new angles the interviewee hasn't considered.");
+  } else if (stance === "autobiography") {
+    parts.push(`STANCE: Autobiography Interviewer — you are a biographer capturing someone's life story for a chronological timeline. Your SOLE PURPOSE is to extract time-tagged events, turning points, and experiences.
+
+CRITICAL RULES FOR AUTOBIOGRAPHY MODE:
+1. ALWAYS ask about WHEN things happened — push for specific dates, years, seasons, or approximate periods ("early 1990s", "summer after college")
+2. Ask about cause-and-effect chains: "What led to that decision?" "What happened as a result?"
+3. Ask about KEY PEOPLE involved in each event — names, roles, relationships
+4. Ask about PLACES — where did this happen? Where were you living at the time?
+5. Identify TURNING POINTS — the moments that changed the trajectory of the story
+6. Move chronologically when possible — start from the beginning and work forward, but follow interesting threads
+7. Capture both FACTS (what happened) and FEELINGS (how it felt, what it meant)
+8. Distinguish between phases/eras (longer periods) and specific milestone events
+9. When the user mentions a time period vaguely, probe for specifics: "You said 'around that time' — can you narrow that down? Was it before or after [previous event]?"
+10. Tag each question topic with the time period being discussed, e.g. "Early Career: First Job" or "Childhood: Family Move"
+
+Your questions should feel like a warm but thorough biographer capturing someone's story for posterity.`);
+  }
+  if (focus.trim()) parts.push(focus.trim());
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
+// ── Default objective for autobiography interviews (no context required) ──
+const AUTOBIOGRAPHY_DEFAULT_OBJECTIVE =
+  "Capture the subject's life story — key events, turning points, people, places, and eras — through a warm, thorough biographical interview that builds depth and sophistication over time.";
+
+// ── Interview stance options (pill selector, like research chat focus modes) ──
+
+const INTERVIEW_STANCES: { id: InterviewStance; label: string; icon: LucideIcon; description: string }[] = [
+  { id: "balanced", label: "Balanced", icon: Scale, description: "Mix of analytical and creative questioning" },
+  { id: "investigative", label: "Investigative", icon: Search, description: "Rigorous — digs into claims, demands evidence" },
+  { id: "exploratory", label: "Exploratory", icon: Compass, description: "Curious — opens new angles, draws connections" },
+];
+
+// ── Props ──
+
+/** Timeline summary for autobiography interview context */
+interface TimelineContextSummary {
+  dateRange?: { earliest: string; latest: string };
+  places: string[];
+  themes: string[];
+  eventCount: number;
+}
+
+interface InterviewTabProps {
+  objective: string;
+  documentText: string;
+  appType?: string;
+  onEvolveDocument?: (instruction: string, description: string) => void;
+  isMerging?: boolean;
+  onCaptureToContext?: (text: string, label: string) => void;
+  /** Timeline summary data for autobiography interviews (era-aware questions) */
+  timelineContext?: TimelineContextSummary | null;
+}
+
+// ── Component ──
+
+export function InterviewTab({
+  objective,
+  documentText,
+  appType,
+  onEvolveDocument,
+  isMerging = false,
+  onCaptureToContext,
+  timelineContext,
+}: InterviewTabProps) {
+  const { toast } = useToast();
+
+  // ── Interview state ──
+  const [entries, setEntries] = useState<InterviewEntry[]>([]);
+  const [isActive, setIsActive] = useState(false);
+  const [currentQuestion, setCurrentQuestion] = useState<string | null>(null);
+  const [currentTopic, setCurrentTopic] = useState<string | null>(null);
+  const [answerText, setAnswerText] = useState("");
+  const [isRecordingAnswer, setIsRecordingAnswer] = useState(false);
+
+  // ── Stance & focus state ──
+  const [stance, setStance] = useState<InterviewStance>(
+    appType === "timeline" ? "autobiography" : "investigative",
+  );
+  const [focusText, setFocusText] = useState("");
+  const [trueInterview, setTrueInterview] = useState(false);
+
+  // ── Podcast state ──
+  const [podcastAudioUrl, setPodcastAudioUrl] = useState<string | null>(null);
+  const [podcastScript, setPodcastScript] = useState<PodcastSegment[] | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [showScript, setShowScript] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // ── TTS (Text-to-Speech) state ──
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Persistent Audio element for mobile — created once on first user gesture
+  // so that subsequent .play() calls from async callbacks are permitted.
+  const mobileAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll when new entries arrive
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [entries.length, currentQuestion]);
+
+  // Cleanup audio URLs on unmount
+  useEffect(() => {
+    return () => {
+      if (podcastAudioUrl) URL.revokeObjectURL(podcastAudioUrl);
+      if (ttsAudioRef.current) {
+        ttsAudioRef.current.pause();
+        const src = ttsAudioRef.current.src;
+        if (src.startsWith("blob:")) URL.revokeObjectURL(src);
+      }
+    };
+  }, [podcastAudioUrl]);
+
+  /**
+   * Unlock audio on mobile — must be called from a direct user gesture
+   * (click handler). Creates a persistent Audio element and plays a tiny
+   * silent buffer so the browser marks it as user-activated. All subsequent
+   * .play() calls on this element succeed even from async callbacks.
+   */
+  const unlockMobileAudio = useCallback(() => {
+    if (mobileAudioRef.current) return; // already unlocked
+    const audio = new Audio();
+    // Tiny silent WAV (44 bytes) — enough to satisfy the user-gesture requirement
+    audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";
+    audio.volume = 0;
+    audio.play().then(() => {
+      audio.pause();
+      audio.volume = 1;
+      mobileAudioRef.current = audio;
+    }).catch(() => {
+      // If even this fails, we'll fall back to creating new Audio elements
+    });
+  }, []);
+
+  // Auto-enable TTS when True Interview mode is on
+  useEffect(() => {
+    if (trueInterview && !ttsEnabled) setTtsEnabled(true);
+  }, [trueInterview, ttsEnabled]);
+
+  /** Speak text via /api/tts — plays the question aloud */
+  const speakQuestion = useCallback(async (text: string) => {
+    if (!ttsEnabled || !text.trim()) return;
+    try {
+      setIsSpeaking(true);
+      const res = await apiRequest("POST", "/api/tts", { text, voice: "nova" });
+      const data = (await res.json()) as { audio: string; mimeType: string };
+      if (!data.audio) {
+        setIsSpeaking(false);
+        return;
+      }
+      // Convert base64 to blob URL
+      const byteChars = atob(data.audio);
+      const byteArray = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) {
+        byteArray[i] = byteChars.charCodeAt(i);
+      }
+      const blob = new Blob([byteArray], { type: data.mimeType || "audio/mp3" });
+      const url = URL.createObjectURL(blob);
+
+      // Prefer the mobile-unlocked Audio element so playback works on mobile.
+      // If it was never unlocked (user didn't click TTS toggle / Start), fall
+      // back to creating a fresh Audio element.
+      const audio = mobileAudioRef.current ?? new Audio();
+
+      // Stop previous TTS playback
+      if (ttsAudioRef.current && ttsAudioRef.current !== audio) {
+        ttsAudioRef.current.pause();
+        const oldSrc = ttsAudioRef.current.src;
+        if (oldSrc.startsWith("blob:")) URL.revokeObjectURL(oldSrc);
+      }
+
+      // Revoke previous blob URL if the same element is being reused
+      const prevSrc = audio.src;
+      if (prevSrc && prevSrc.startsWith("blob:")) URL.revokeObjectURL(prevSrc);
+
+      audio.src = url;
+      ttsAudioRef.current = audio;
+      audio.onended = () => setIsSpeaking(false);
+      audio.onerror = () => setIsSpeaking(false);
+      await audio.play();
+    } catch {
+      setIsSpeaking(false);
+      // TTS is non-critical — fail silently
+    }
+  }, [ttsEnabled]);
+
+  // ── Fetch next question mutation ──
+  // Accept optional updatedEntries to avoid stale closure when called
+  // immediately after setEntries (React state updates are async).
+  const questionMutation = useMutation({
+    mutationFn: async (updatedEntries?: InterviewEntry[]) => {
+      const allEntries = updatedEntries ?? entries;
+      // Autobiography mode uses a default objective when none is provided
+      const effectiveObjective = objective.trim() || (stance === "autobiography" ? AUTOBIOGRAPHY_DEFAULT_OBJECTIVE : objective);
+      const response = await apiRequest("POST", "/api/interview/question", {
+        objective: effectiveObjective,
+        document: documentText,
+        appType,
+        previousEntries: allEntries.length > 0 ? allEntries : undefined,
+        directionMode: stance === "investigative" ? "challenge" : stance === "exploratory" || stance === "autobiography" ? "advise" : undefined,
+        directionGuidance: buildGuidance(stance, focusText, appType),
+        ...(stance === "autobiography" && timelineContext ? { timelineContext } : {}),
+      });
+      return (await response.json()) as InterviewQuestionResponse;
+    },
+    onSuccess: (data) => {
+      setCurrentQuestion(data.question);
+      setCurrentTopic(data.topic);
+      // Read the question aloud if TTS is enabled
+      speakQuestion(data.question);
+    },
+    onError: (error) => {
+      const msg = error instanceof Error ? error.message : "Failed to generate question";
+      errorLogStore.push({ step: "Interview Question", endpoint: "/api/interview/question", message: msg });
+      toast({ title: "Question failed", description: msg, variant: "destructive" });
+    },
+  });
+
+  // ── Summary mutation ──
+  const summaryMutation = useMutation({
+    mutationFn: async () => {
+      const effectiveObjective = objective.trim() || (stance === "autobiography" ? AUTOBIOGRAPHY_DEFAULT_OBJECTIVE : objective);
+      const response = await apiRequest("POST", "/api/interview/summary", {
+        objective: effectiveObjective,
+        entries,
+        document: documentText,
+        appType,
+      });
+      return (await response.json()) as { instruction: string };
+    },
+    onSuccess: (data) => {
+      if (onEvolveDocument) {
+        onEvolveDocument(data.instruction, "Interview summary merged");
+      }
+      toast({ title: "Summary merged", description: "Interview findings integrated into the document" });
+    },
+    onError: (error) => {
+      const msg = error instanceof Error ? error.message : "Failed to generate summary";
+      errorLogStore.push({ step: "Interview Summary", endpoint: "/api/interview/summary", message: msg });
+      toast({ title: "Summary failed", description: msg, variant: "destructive" });
+    },
+  });
+
+  // ── Podcast mutation ──
+  const podcastMutation = useMutation({
+    mutationFn: async () => {
+      const effectiveObjective = objective.trim() || (stance === "autobiography" ? AUTOBIOGRAPHY_DEFAULT_OBJECTIVE : objective);
+      const response = await apiRequest("POST", "/api/interview/podcast", {
+        objective: effectiveObjective,
+        entries,
+        document: documentText,
+        appType,
+      });
+      return (await response.json()) as PodcastResponse;
+    },
+    onSuccess: (data) => {
+      // Convert base64 audio to blob URL
+      const byteChars = atob(data.audio);
+      const byteArray = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) {
+        byteArray[i] = byteChars.charCodeAt(i);
+      }
+      const blob = new Blob([byteArray], { type: data.mimeType });
+      const url = URL.createObjectURL(blob);
+
+      // Revoke old URL if any
+      if (podcastAudioUrl) URL.revokeObjectURL(podcastAudioUrl);
+
+      setPodcastAudioUrl(url);
+      setPodcastScript(data.script);
+      toast({ title: "Podcast ready", description: "Your podcast episode has been generated" });
+      trackEvent("podcast_generated");
+    },
+    onError: (error) => {
+      const msg = error instanceof Error ? error.message : "Failed to generate podcast";
+      errorLogStore.push({ step: "Podcast", endpoint: "/api/interview/podcast", message: msg });
+      toast({ title: "Podcast failed", description: msg, variant: "destructive" });
+    },
+  });
+
+  // ── Handlers ──
+
+  const handleStart = useCallback(() => {
+    // Autobiography mode can start without an objective — it uses a sensible default
+    if (!objective.trim() && stance !== "autobiography") {
+      toast({ title: "Objective required", description: "Set a document objective before starting the interview.", variant: "destructive" });
+      return;
+    }
+    // Unlock audio on mobile — must happen inside a user gesture handler
+    if (ttsEnabled) unlockMobileAudio();
+    setIsActive(true);
+    questionMutation.mutate(undefined);
+    trackEvent("interview_started");
+  }, [objective, stance, questionMutation, toast, ttsEnabled, unlockMobileAudio]);
+
+  const handleStop = useCallback(() => {
+    setIsActive(false);
+    setCurrentQuestion(null);
+    setCurrentTopic(null);
+    trackEvent("interview_ended", { metadata: { entryCount: String(entries.length) } });
+  }, [entries.length]);
+
+  const handleAnswer = useCallback(
+    (answer: string) => {
+      if (!currentQuestion || !answer.trim()) return;
+
+      const entry: InterviewEntry = {
+        id: generateId("iv"),
+        question: currentQuestion,
+        answer: answer.trim(),
+        topic: currentTopic || "General",
+        timestamp: Date.now(),
+      };
+
+      // Build the full entries array including this new answer so the
+      // mutation sees it immediately (setEntries is async).
+      const nextEntries = [...entries, entry];
+      setEntries(nextEntries);
+      setCurrentQuestion(null);
+      setCurrentTopic(null);
+      setAnswerText("");
+      trackEvent("interview_answer", { metadata: { inputMethod: "text" } });
+
+      // Pass the up-to-date entries so the LLM sees ALL previous Q&A
+      questionMutation.mutate(nextEntries);
+    },
+    [currentQuestion, currentTopic, questionMutation, entries],
+  );
+
+  const handleSubmitAnswer = useCallback(() => {
+    handleAnswer(answerText);
+  }, [answerText, handleAnswer]);
+
+  const handleVoiceAnswer = useCallback(
+    (transcript: string) => {
+      if (!transcript.trim()) return;
+      trackEvent("voice_recorded");
+      // Check for "Provo End Message" keyword — strip it and submit
+      const endKeyword = /provo\s+message/i;
+      const cleaned = transcript.replace(endKeyword, "").trim();
+      if (cleaned) {
+        handleAnswer(cleaned);
+      }
+    },
+    [handleAnswer],
+  );
+
+  // Watch answerText for "Provo End Message" keyword mid-stream and auto-submit
+  const endKeywordRef = useRef(false);
+  useEffect(() => {
+    if (!answerText || !isRecordingAnswer || endKeywordRef.current) return;
+    const endKeyword = /provo\s+message/i;
+    if (endKeyword.test(answerText)) {
+      endKeywordRef.current = true;
+      const cleaned = answerText.replace(endKeyword, "").trim();
+      if (cleaned) {
+        // Small delay to let voice recording finish
+        setTimeout(() => {
+          handleAnswer(cleaned);
+          endKeywordRef.current = false;
+        }, 300);
+      } else {
+        endKeywordRef.current = false;
+      }
+    }
+  }, [answerText, isRecordingAnswer, handleAnswer]);
+
+  const handleSkip = useCallback(() => {
+    trackEvent("interview_skip");
+    setCurrentQuestion(null);
+    setCurrentTopic(null);
+    questionMutation.mutate(undefined);
+  }, [questionMutation]);
+
+  const handleGenerateSummary = useCallback(() => {
+    if (entries.length === 0) {
+      toast({ title: "No entries", description: "Answer some questions before generating a summary.", variant: "destructive" });
+      return;
+    }
+    summaryMutation.mutate();
+  }, [entries.length, summaryMutation, toast]);
+
+  const handleGeneratePodcast = useCallback(() => {
+    if (entries.length === 0) {
+      toast({ title: "No entries", description: "Answer some questions before generating a podcast.", variant: "destructive" });
+      return;
+    }
+    podcastMutation.mutate();
+  }, [entries.length, podcastMutation, toast]);
+
+  const handlePlayPause = useCallback(() => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play();
+    }
+    setIsPlaying(!isPlaying);
+  }, [isPlaying]);
+
+  const handleSaveToContext = useCallback(() => {
+    if (!onCaptureToContext || entries.length === 0) return;
+    const text = entries
+      .map((e) => `**${e.topic}**\nQ: ${e.question}\nA: ${e.answer}`)
+      .join("\n\n---\n\n");
+    onCaptureToContext(text, "Interview Q&A");
+    toast({ title: "Saved to notes", description: `${entries.length} Q&A pairs captured` });
+  }, [entries, onCaptureToContext, toast]);
+
+  // ── Stance cycle helper ──
+  const cycleStance = useCallback(() => {
+    setStance((prev) =>
+      prev === "balanced" ? "investigative" : prev === "investigative" ? "exploratory" : prev === "exploratory" ? "autobiography" : "balanced"
+    );
+  }, []);
+
+  // ── LLM preview: Start Interview button ──
+  const interviewStartBlocks: ContextBlock[] = useMemo(() => {
+    const guidanceChars = buildGuidance(stance, focusText, appType)?.length ?? 0;
+    return [
+      { label: "System Prompt", chars: 2000, color: "text-purple-400" },
+      { label: "Objective", chars: objective.length, color: "text-amber-400" },
+      { label: "Document", chars: documentText.length, color: "text-blue-400" },
+      { label: "Stance Guidance", chars: guidanceChars, color: "text-emerald-400" },
+      { label: "Timeline Context", chars: timelineContext ? JSON.stringify(timelineContext).length : 0, color: "text-cyan-400" },
+    ];
+  }, [objective, documentText, stance, focusText, appType, timelineContext]);
+
+  const interviewStartSummary: SummaryItem[] = useMemo(() => [
+    { icon: <Target className="w-3 h-3 text-amber-400" />, label: "Objective", count: objective.trim() ? 1 : 0, detail: objective.slice(0, 50) },
+    { icon: <FileText className="w-3 h-3 text-blue-400" />, label: "Document", count: documentText.trim() ? 1 : 0, detail: `${documentText.split(/\s+/).filter(Boolean).length} words` },
+    { icon: <Search className="w-3 h-3 text-emerald-400" />, label: "Stance", count: 1, detail: stance },
+  ], [objective, documentText, stance]);
+
+  // ── LLM preview: Summary & Podcast buttons ──
+  const entriesChars = useMemo(
+    () => entries.reduce((s, e) => s + e.question.length + e.answer.length, 0),
+    [entries],
+  );
+
+  const summaryBlocks: ContextBlock[] = useMemo(() => [
+    { label: "System Prompt", chars: 1500, color: "text-purple-400" },
+    { label: "Objective", chars: objective.length, color: "text-amber-400" },
+    { label: "Interview Q&A", chars: entriesChars, color: "text-green-400" },
+    { label: "Document", chars: documentText.length, color: "text-blue-400" },
+  ], [objective, entriesChars, documentText]);
+
+  const summaryPreviewItems: SummaryItem[] = useMemo(() => [
+    { icon: <MessageCircleQuestion className="w-3 h-3 text-green-400" />, label: "Q&A Entries", count: entries.length, detail: `${entries.length} pairs` },
+    { icon: <FileText className="w-3 h-3 text-blue-400" />, label: "Document", count: documentText.trim() ? 1 : 0, detail: `${documentText.split(/\s+/).filter(Boolean).length} words` },
+    { icon: <Target className="w-3 h-3 text-amber-400" />, label: "Objective", count: objective.trim() ? 1 : 0 },
+  ], [entries, documentText, objective]);
+
+  const podcastBlocks: ContextBlock[] = useMemo(() => [
+    { label: "System Prompt", chars: 2500, color: "text-purple-400" },
+    { label: "Objective", chars: objective.length, color: "text-amber-400" },
+    { label: "Interview Q&A", chars: entriesChars, color: "text-green-400" },
+    { label: "Document", chars: documentText.length, color: "text-blue-400" },
+  ], [objective, entriesChars, documentText]);
+
+  const podcastPreviewItems: SummaryItem[] = useMemo(() => [
+    { icon: <MessageCircleQuestion className="w-3 h-3 text-green-400" />, label: "Q&A Entries", count: entries.length, detail: `${entries.length} pairs` },
+    { icon: <FileText className="w-3 h-3 text-blue-400" />, label: "Document", count: documentText.trim() ? 1 : 0, detail: `${documentText.split(/\s+/).filter(Boolean).length} words` },
+    { icon: <Podcast className="w-3 h-3 text-violet-400" />, label: "Output", count: 1, detail: "Two-host podcast + TTS" },
+  ], [entries, documentText]);
+
+  // ── Render: Not started ──
+  if (!isActive && entries.length === 0) {
+    return (
+      <div className="h-full flex flex-col">
+        {/* Header bar */}
+        <div className="flex items-center justify-between px-3 py-2 border-b shrink-0">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Interview</span>
+        </div>
+
+        <ScrollArea className="flex-1">
+          <div className="p-4 space-y-4 max-w-sm mx-auto">
+            {/* Instructions callout */}
+            <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <Info className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">Before you start</span>
+              </div>
+              <ul className="text-[11px] text-muted-foreground space-y-1 pl-5 list-disc">
+                <li><strong>Document objective</strong> must be set in the center panel</li>
+                <li><strong>A text/markdown document</strong> should be started or loaded as the target</li>
+                <li>The interviewer asks questions based on your objective and document content</li>
+                <li>Answer by <strong>typing or voice</strong> — say <strong>&quot;Provo Message&quot;</strong> to submit via voice</li>
+              </ul>
+            </div>
+
+            {/* Stance selector — pill style like research chat focus modes */}
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Interview Style</p>
+              <div className="flex flex-wrap items-center gap-1 bg-muted/20 rounded-lg p-1.5 border">
+                {INTERVIEW_STANCES.map((s) => {
+                  const Icon = s.icon;
+                  const isSelected = stance === s.id;
+                  return (
+                    <Tooltip key={s.id}>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => setStance(s.id)}
+                          className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
+                            isSelected
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                          }`}
+                        >
+                          <Icon className="w-3 h-3" />
+                          {s.label}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-xs max-w-[200px]">
+                        {s.description}
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Focus input */}
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Focus (optional)</p>
+              <input
+                type="text"
+                value={focusText}
+                onChange={(e) => setFocusText(e.target.value)}
+                placeholder="e.g. Push me on pricing strategy"
+                className="w-full px-2.5 py-1.5 text-xs bg-muted/30 border rounded-md outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+              />
+            </div>
+
+            {/* Mode toggles */}
+            <div className="space-y-2">
+              {/* True Interview — continuous dialog */}
+              <button
+                onClick={() => {
+                  const next = !trueInterview;
+                  setTrueInterview(next);
+                  if (next) setTtsEnabled(true);
+                }}
+                className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md border text-xs transition-colors ${
+                  trueInterview
+                    ? "border-emerald-500/60 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400"
+                    : "border-border/60 text-muted-foreground hover:text-foreground hover:border-foreground/20"
+                }`}
+              >
+                <Radio className="w-3.5 h-3.5 shrink-0" />
+                <div className="text-left flex-1">
+                  <span className="font-medium">True Interview</span>
+                  <span className="text-[10px] opacity-70 ml-1.5">continuous voice dialog — hands-free</span>
+                </div>
+              </button>
+
+              {/* Autobiography toggle */}
+              <button
+                onClick={() => setStance(stance === "autobiography" ? "investigative" : "autobiography")}
+                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md border text-xs transition-colors ${
+                  stance === "autobiography"
+                    ? "border-amber-500/60 bg-amber-500/5 text-amber-700 dark:text-amber-400"
+                    : "border-border/60 text-muted-foreground hover:text-foreground hover:border-foreground/20"
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5 shrink-0" />
+                <div className="text-left">
+                  <span className="font-medium">Autobiography</span>
+                  <span className="text-[10px] opacity-70 ml-1.5">captures time-tagged life events</span>
+                </div>
+              </button>
+
+              {/* Focus input */}
+              <div className="space-y-1">
+                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Focus (optional)</p>
+                <input
+                  type="text"
+                  value={focusText}
+                  onChange={(e) => setFocusText(e.target.value)}
+                  placeholder="e.g. Push me on pricing strategy"
+                  className="w-full px-2.5 py-1.5 text-xs bg-muted/30 border rounded-md outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+                />
+              </div>
+
+              {/* Voice conversation mode toggle */}
+              <button
+                onClick={() => {
+                  const next = !ttsEnabled;
+                  setTtsEnabled(next);
+                  // Unlock audio on mobile when enabling TTS (user gesture required)
+                  if (next) unlockMobileAudio();
+                }}
+                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md border text-xs transition-colors ${
+                  ttsEnabled
+                    ? "border-violet-500/60 bg-violet-500/5 text-violet-600 dark:text-violet-400"
+                    : "border-border/60 text-muted-foreground hover:text-foreground hover:border-foreground/20"
+                }`}
+              >
+                {ttsEnabled ? <Volume2 className="w-3.5 h-3.5 shrink-0" /> : <VolumeX className="w-3.5 h-3.5 shrink-0" />}
+                <div className="text-left">
+                  <span className="font-medium">Voice Conversation</span>
+                  <span className="text-[10px] opacity-70 ml-1.5">questions read aloud</span>
+                </div>
+              </button>
+            </div>
+
+            <LlmHoverButton previewTitle="Start Interview" previewBlocks={interviewStartBlocks} previewSummary={interviewStartSummary} side="left" align="start">
+              <Button
+                size="sm"
+                className="gap-1.5 w-full"
+                onClick={handleStart}
+                disabled={!objective.trim() && stance !== "autobiography"}
+              >
+                <Mic className="w-3.5 h-3.5" />
+                {trueInterview ? "Start True Interview" : "Start Interview"}
+              </Button>
+            </LlmHoverButton>
+            {!objective.trim() && stance !== "autobiography" && (
+              <p className="text-[10px] text-muted-foreground/60 text-center">
+                Set a document objective in the center panel first
+              </p>
+            )}
+            {!objective.trim() && stance === "autobiography" && (
+              <p className="text-[10px] text-amber-600/70 dark:text-amber-400/70 text-center">
+                Biography mode — ready to capture your story
+              </p>
+            )}
+          </div>
+        </ScrollArea>
+      </div>
+    );
+  }
+
+  // ── Render: Active interview / completed ──
+  return (
+    <div className="h-full flex flex-col">
+      {/* ── Header bar with Podcast button ── */}
+      <div className="flex items-center justify-between px-3 py-2 border-b shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Interview</span>
+          {entries.length > 0 && (
+            <Badge variant="outline" className="text-[10px] h-4">
+              {entries.length} Q&A
+            </Badge>
+          )}
+          {/* Stance pill — tap to cycle */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={cycleStance}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors hover:bg-muted/50"
+              >
+                {stance === "investigative" ? (
+                  <><Search className="w-3 h-3" /> Investigative</>
+                ) : stance === "exploratory" ? (
+                  <><Compass className="w-3 h-3" /> Exploratory</>
+                ) : stance === "autobiography" ? (
+                  <><Clock className="w-3 h-3" /> Autobiography</>
+                ) : (
+                  <><Scale className="w-3 h-3" /> Balanced</>
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Tap to cycle stance</TooltipContent>
+          </Tooltip>
+        </div>
+        <div className="flex items-center gap-1">
+          {/* TTS toggle */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={ttsEnabled ? "default" : "ghost"}
+                size="sm"
+                className={`h-7 w-7 p-0 ${ttsEnabled ? "text-primary-foreground" : "text-muted-foreground"}`}
+                onClick={() => {
+                  const next = !ttsEnabled;
+                  setTtsEnabled(next);
+                  // Unlock audio on mobile when enabling TTS (user gesture required)
+                  if (next) unlockMobileAudio();
+                  if (!next && ttsAudioRef.current) {
+                    ttsAudioRef.current.pause();
+                    setIsSpeaking(false);
+                  }
+                }}
+              >
+                {ttsEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{ttsEnabled ? "Disable question read-aloud" : "Enable question read-aloud (voice conversation mode)"}</TooltipContent>
+          </Tooltip>
+
+          {/* Podcast button */}
+          <LlmHoverButton previewTitle="Podcast" previewBlocks={podcastBlocks} previewSummary={podcastPreviewItems} side="bottom" align="end">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1 text-xs h-7 px-2"
+              onClick={handleGeneratePodcast}
+              disabled={entries.length === 0 || podcastMutation.isPending}
+            >
+              {podcastMutation.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Podcast className="w-3.5 h-3.5" />
+              )}
+              Podcast
+            </Button>
+          </LlmHoverButton>
+
+          {/* Summary → merge to doc */}
+          <LlmHoverButton previewTitle="Interview Summary" previewBlocks={summaryBlocks} previewSummary={summaryPreviewItems} side="bottom" align="end">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1 text-xs h-7 px-2"
+              onClick={handleGenerateSummary}
+              disabled={entries.length === 0 || summaryMutation.isPending || isMerging}
+            >
+              {summaryMutation.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <FileText className="w-3.5 h-3.5" />
+              )}
+              Summary
+            </Button>
+          </LlmHoverButton>
+
+          {/* Stop / Restart */}
+          {isActive ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-destructive"
+                  onClick={handleStop}
+                >
+                  <Square className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>End interview</TooltipContent>
+            </Tooltip>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-primary"
+                  onClick={handleStart}
+                >
+                  <Play className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Resume interview</TooltipContent>
+            </Tooltip>
+          )}
+
+          {/* Save to context — far right */}
+          {onCaptureToContext && entries.length > 0 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 ml-1"
+                  onClick={handleSaveToContext}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Save Q&A to Notes</TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+      </div>
+
+      {/* ── Podcast player (shown when audio is available) ── */}
+      {podcastAudioUrl && (
+        <div className="px-3 py-2 border-b bg-gradient-to-r from-violet-50/50 to-fuchsia-50/50 dark:from-violet-950/20 dark:to-fuchsia-950/20 space-y-2 shrink-0">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+              onClick={handlePlayPause}
+            >
+              {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+            </Button>
+            <div className="flex-1">
+              <p className="text-xs font-medium">Interview Podcast</p>
+              <p className="text-[10px] text-muted-foreground">
+                {podcastScript ? `${podcastScript.length} segments` : "Ready to play"}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-[10px] h-6 px-2"
+              onClick={() => setShowScript(!showScript)}
+            >
+              {showScript ? "Hide" : "Script"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => {
+                if (audioRef.current) {
+                  audioRef.current.pause();
+                  setIsPlaying(false);
+                }
+                if (podcastAudioUrl) URL.revokeObjectURL(podcastAudioUrl);
+                setPodcastAudioUrl(null);
+                setPodcastScript(null);
+                setShowScript(false);
+              }}
+            >
+              <X className="w-3 h-3" />
+            </Button>
+          </div>
+          <audio
+            ref={audioRef}
+            src={podcastAudioUrl}
+            onEnded={() => setIsPlaying(false)}
+            onPause={() => setIsPlaying(false)}
+            onPlay={() => setIsPlaying(true)}
+            controls
+            className="w-full h-8"
+          />
+          {/* Script display */}
+          {showScript && podcastScript && (
+            <div className="max-h-40 overflow-y-auto space-y-1.5 pt-1">
+              {podcastScript.map((seg, i) => (
+                <div key={i} className="text-xs leading-relaxed">
+                  <span className={`font-semibold ${seg.speaker === "alex" ? "text-violet-600 dark:text-violet-400" : "text-amber-600 dark:text-amber-400"}`}>
+                    {seg.speaker === "alex" ? "Alex" : "Jordan"}:
+                  </span>{" "}
+                  <span className="text-muted-foreground">{seg.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Podcast generating indicator ── */}
+      {podcastMutation.isPending && (
+        <div className="px-3 py-3 border-b bg-gradient-to-r from-violet-50/50 to-fuchsia-50/50 dark:from-violet-950/20 dark:to-fuchsia-950/20 shrink-0">
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin text-violet-500" />
+            <div>
+              <p className="text-xs font-medium text-violet-600 dark:text-violet-400">Generating podcast...</p>
+              <p className="text-[10px] text-muted-foreground">Writing script and producing audio — this may take a minute</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Q&A Thread ── */}
+      <ScrollArea className="flex-1">
+        <div className="p-3 space-y-3" ref={scrollRef}>
+          {/* Previous entries */}
+          {entries.map((entry) => (
+            <div key={entry.id} className="space-y-1.5">
+              {/* Question */}
+              <div className="flex justify-start">
+                <div className="max-w-[90%] bg-card border rounded-lg rounded-bl-sm p-2.5">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <MessageCircleQuestion className="w-3 h-3 text-primary" />
+                    <Badge variant="outline" className="text-[10px] h-4">{entry.topic}</Badge>
+                  </div>
+                  <p className="text-sm leading-relaxed">{entry.question}</p>
+                </div>
+              </div>
+              {/* Answer */}
+              <div className="flex justify-end">
+                <div className="max-w-[85%] bg-primary/10 border border-primary/20 rounded-lg rounded-br-sm p-2.5">
+                  <p className="text-sm leading-relaxed">{entry.answer}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Loading indicator for next question */}
+          {questionMutation.isPending && (
+            <div className="flex justify-start">
+              <div className="bg-card border rounded-lg rounded-bl-sm p-3 flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                <span className="text-xs text-muted-foreground">Thinking of the next question...</span>
+              </div>
+            </div>
+          )}
+
+          {/* Current question with answer input */}
+          {currentQuestion && !questionMutation.isPending && (
+            <div className="space-y-2">
+              {/* Question bubble */}
+              <div className="flex justify-start">
+                <div className="max-w-[90%] bg-card border border-primary/30 rounded-lg rounded-bl-sm p-2.5">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <MessageCircleQuestion className="w-3 h-3 text-primary" />
+                    {currentTopic && (
+                      <Badge className="text-[10px] h-4">{currentTopic}</Badge>
+                    )}
+                    <div className="flex items-center gap-0.5 ml-auto">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1 text-xs h-5 px-1.5 text-muted-foreground"
+                            onClick={handleSkip}
+                          >
+                            <SkipForward className="w-3 h-3" />
+                            Skip
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Skip this question</TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </div>
+                  <p className="text-sm font-medium leading-relaxed">{currentQuestion}</p>
+                </div>
+              </div>
+
+              {/* Answer input */}
+              <div className="pl-4 space-y-1.5">
+                <div className="flex items-end gap-2">
+                  <VoiceRecorder
+                    onTranscript={handleVoiceAnswer}
+                    onRecordingChange={setIsRecordingAnswer}
+                    size="sm"
+                    variant={isRecordingAnswer ? "destructive" : "ghost"}
+                    className={`h-8 w-8 shrink-0 rounded-full ${isRecordingAnswer ? "animate-pulse" : "text-muted-foreground"}`}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <textarea
+                      value={answerText}
+                      onChange={(e) => setAnswerText(e.target.value)}
+                      placeholder={isRecordingAnswer ? "Listening..." : "Type your answer..."}
+                      className="w-full bg-muted/30 border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/50 resize-none outline-none px-3 py-2 min-h-[36px] max-h-[120px] leading-relaxed"
+                      rows={2}
+                      onInput={(e) => {
+                        const target = e.target as HTMLTextAreaElement;
+                        target.style.height = "auto";
+                        target.style.height = Math.min(target.scrollHeight, 120) + "px";
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSubmitAnswer();
+                        }
+                      }}
+                    />
+                  </div>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={handleSubmitAnswer}
+                    disabled={!answerText.trim()}
+                    className="h-8 w-8 shrink-0"
+                  >
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </div>
+                {isRecordingAnswer && (
+                  <div className="flex items-center gap-1.5 text-xs text-primary animate-pulse">
+                    <Mic className="w-3 h-3" />
+                    Listening... <span className="text-muted-foreground text-[10px] font-normal ml-1">Say &quot;Provo Message&quot; to submit</span>
+                  </div>
+                )}
+                {isSpeaking && (
+                  <div className="flex items-center gap-1.5 text-xs text-violet-500 animate-pulse">
+                    <Volume2 className="w-3 h-3" />
+                    Speaking question...
+                  </div>
+                )}
+                {trueInterview && !isSpeaking && !isRecordingAnswer && currentQuestion && (
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-500">
+                    <Mic className="w-3 h-3" />
+                    Your turn — tap mic to answer
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Interview ended state */}
+          {!isActive && entries.length > 0 && !currentQuestion && !questionMutation.isPending && (
+            <div className="flex justify-center pt-2">
+              <div className="text-center space-y-2 bg-muted/30 rounded-lg p-3">
+                <p className="text-xs text-muted-foreground">
+                  Interview paused — {entries.length} questions answered
+                </p>
+                <div className="flex items-center gap-2 justify-center">
+                  <Button size="sm" variant="outline" className="text-xs h-7 gap-1" onClick={handleStart}>
+                    <Play className="w-3 h-3" />
+                    Continue
+                  </Button>
+                  {entries.length >= 3 && (
+                    <LlmHoverButton previewTitle="Podcast" previewBlocks={podcastBlocks} previewSummary={podcastPreviewItems} side="top" align="end">
+                      <Button size="sm" variant="outline" className="text-xs h-7 gap-1" onClick={handleGeneratePodcast} disabled={podcastMutation.isPending}>
+                        <Podcast className="w-3 h-3" />
+                        Podcast
+                      </Button>
+                    </LlmHoverButton>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}

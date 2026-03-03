@@ -2,11 +2,38 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { clerkMiddleware, requireAuth } from "@clerk/express";
+import { ensureTables } from "./db";
+import { discoverModels } from "./llm";
 
 const app = express();
 const httpServer = createServer(app);
 
-app.use(express.json());
+// Stripe webhooks need the raw body for signature verification.
+// All other routes get the usual JSON parser.
+app.use((req, res, next) => {
+  if (req.path === "/api/stripe/webhook") {
+    express.raw({ type: "application/json" })(req, res, next);
+  } else {
+    express.json({ limit: "5mb" })(req, res, next);
+  }
+});
+app.use(clerkMiddleware());
+
+app.get("/api/clerk-config", (_req, res) => {
+  const key = process.env.CLERK_PUBLISHABLE_KEY;
+  if (!key) {
+    return res.status(500).json({ error: "Clerk publishable key not configured" });
+  }
+  res.json({ publishableKey: key });
+});
+
+app.use("/api", (req, _res, next) => {
+  if (req.path === "/clerk-config" || req.path === "/stripe/webhook") {
+    return next();
+  }
+  return requireAuth()(req, _res, next);
+});
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -46,6 +73,19 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Create tables if they don't exist (handles first-run / missing db:push)
+  try {
+    await ensureTables();
+  } catch (err) {
+    console.error("ensureTables failed:", err instanceof Error ? err.message : err);
+    console.warn("Continuing without database.");
+  }
+
+  // Discover available models from OpenAI / Gemini APIs (non-blocking fallback on error)
+  await discoverModels().catch((err) => {
+    console.warn("[llm] Model discovery failed, using static fallback:", err instanceof Error ? err.message : err);
+  });
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
@@ -86,4 +126,7 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
-})();
+})().catch((err) => {
+  console.error("Fatal startup error:", err);
+  process.exit(1);
+});

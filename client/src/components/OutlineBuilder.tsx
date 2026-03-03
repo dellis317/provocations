@@ -1,20 +1,20 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
-  ListTree, 
-  Plus, 
-  GripVertical, 
-  ChevronDown, 
+import { ProvokeText } from "./ProvokeText";
+import {
+  ListTree,
+  Plus,
+  GripVertical,
+  ChevronDown,
   ChevronRight,
   Trash2,
   Wand2,
-  Loader2
+  Loader2,
+  Send
 } from "lucide-react";
 import type { OutlineItem, ToneOption } from "@shared/schema";
 
@@ -25,6 +25,9 @@ interface OutlineBuilderProps {
   onRemoveItem: (id: string) => void;
   onReorder: (items: OutlineItem[]) => void;
   onExpandHeading: (id: string, heading: string, tone?: ToneOption) => Promise<string>;
+  onVoiceInput?: (sectionId: string, heading: string, transcript: string) => void;
+  onTranscriptUpdate?: (transcript: string, isRecording: boolean) => void;
+  onTextInstruction?: (sectionId: string, heading: string, instruction: string, currentContent: string) => void;
   isLoading?: boolean;
 }
 
@@ -33,16 +36,24 @@ function OutlineItemCard({
   onUpdate,
   onRemove,
   onExpand,
+  onVoiceInput,
+  onTranscriptUpdate,
+  onTextInstruction,
   isExpanding,
 }: {
   item: OutlineItem;
   onUpdate: (updates: Partial<OutlineItem>) => void;
   onRemove: () => void;
   onExpand: () => void;
+  onVoiceInput?: (transcript: string) => void;
+  onTranscriptUpdate?: (transcript: string, isRecording: boolean) => void;
+  onTextInstruction?: (instruction: string) => void;
   isExpanding: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(item.heading);
+  const [showInstruction, setShowInstruction] = useState(false);
+  const [instructionText, setInstructionText] = useState("");
 
   const handleSaveHeading = () => {
     if (editValue.trim()) {
@@ -51,8 +62,16 @@ function OutlineItemCard({
     setIsEditing(false);
   };
 
+  const handleSubmitInstruction = () => {
+    if (instructionText.trim() && onTextInstruction) {
+      onTextInstruction(instructionText.trim());
+      setInstructionText("");
+      setShowInstruction(false);
+    }
+  };
+
   return (
-    <Card 
+    <Card
       data-testid={`outline-item-${item.id}`}
       className="group"
     >
@@ -61,7 +80,7 @@ function OutlineItemCard({
           <div className="cursor-grab opacity-0 group-hover:opacity-50 transition-opacity">
             <GripVertical className="w-4 h-4" />
           </div>
-          
+
           <button
             data-testid={`button-toggle-expand-${item.id}`}
             onClick={() => onUpdate({ isExpanded: !item.isExpanded })}
@@ -73,19 +92,24 @@ function OutlineItemCard({
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
             )}
           </button>
-          
+
           {isEditing ? (
-            <Input
+            <ProvokeText
+              variant="input"
+              chrome="bare"
               data-testid={`input-heading-${item.id}`}
               value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              onBlur={handleSaveHeading}
-              onKeyDown={(e) => e.key === "Enter" && handleSaveHeading()}
+              onChange={setEditValue}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSaveHeading();
+              }}
               className="h-7 text-sm font-medium flex-1"
               autoFocus
+              showCopy={false}
+              showClear={false}
             />
           ) : (
-            <span 
+            <span
               className="flex-1 font-medium cursor-text"
               onClick={() => setIsEditing(true)}
               data-testid={`text-heading-${item.id}`}
@@ -93,7 +117,7 @@ function OutlineItemCard({
               {item.heading}
             </span>
           )}
-          
+
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <Button
               data-testid={`button-expand-ai-${item.id}`}
@@ -122,18 +146,73 @@ function OutlineItemCard({
           </div>
         </CardTitle>
       </CardHeader>
-      
+
       {item.isExpanded && (
-        <CardContent className="p-3 pt-0">
-          <Textarea
+        <CardContent className="p-3 pt-0 space-y-2">
+          {/* Edit controls: text instruction input (above content) */}
+          <div className="flex items-center gap-1">
+            {showInstruction ? (
+              <div className="flex items-center gap-1 flex-1">
+                <ProvokeText
+                  variant="input"
+                  chrome="bare"
+                  value={instructionText}
+                  onChange={setInstructionText}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSubmitInstruction();
+                    } else if (e.key === "Escape") {
+                      setShowInstruction(false);
+                      setInstructionText("");
+                    }
+                  }}
+                  placeholder={`How to modify "${item.heading}"...`}
+                  className="h-7 text-sm flex-1"
+                  autoFocus
+                  showCopy={false}
+                  showClear={false}
+                  voice={{ mode: "replace" }}
+                  onVoiceTranscript={(transcript) => {
+                    if (onTextInstruction) {
+                      onTextInstruction(transcript);
+                    }
+                    setShowInstruction(false);
+                    setInstructionText("");
+                  }}
+                  onSubmit={handleSubmitInstruction}
+                  submitIcon={Send}
+                />
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1 text-xs text-muted-foreground"
+                onClick={() => setShowInstruction(true)}
+              >
+                <Send className="w-3 h-3" />
+                Edit with instruction
+              </Button>
+            )}
+          </div>
+
+          <ProvokeText
+            chrome="inline"
             data-testid={`textarea-content-${item.id}`}
-            placeholder="Write your content here, or use AI to generate from the heading..."
+            placeholder="Write your content here, or use voice / AI to generate..."
             value={item.content}
-            onChange={(e) => onUpdate({ content: e.target.value })}
-            className="min-h-[100px] text-sm resize-none"
+            onChange={(val) => onUpdate({ content: val })}
+            className="text-sm min-h-[100px]"
+            minRows={4}
+            maxRows={20}
+            voice={{ mode: "append", inline: false }}
+            onVoiceTranscript={(transcript) => onVoiceInput?.(transcript)}
+            onVoiceInterimTranscript={(interim) => onTranscriptUpdate?.(interim, true)}
+            onRecordingChange={(isRecording) => onTranscriptUpdate?.("", isRecording)}
           />
           {item.content && (
-            <div className="flex items-center justify-end gap-2 mt-2">
+            <div className="flex items-center justify-end gap-2">
               <span className="text-xs text-muted-foreground">
                 {item.content.split(/\s+/).filter(Boolean).length} words
               </span>
@@ -152,6 +231,9 @@ export function OutlineBuilder({
   onRemoveItem,
   onReorder,
   onExpandHeading,
+  onVoiceInput,
+  onTranscriptUpdate,
+  onTextInstruction,
   isLoading,
 }: OutlineBuilderProps) {
   const [newHeading, setNewHeading] = useState("");
@@ -213,22 +295,20 @@ export function OutlineBuilder({
       
       <div className="p-4 border-b">
         <div className="flex items-center gap-2">
-          <Input
+          <ProvokeText
+            variant="input"
+            chrome="bare"
             data-testid="input-new-heading"
             placeholder="Add a section heading..."
             value={newHeading}
-            onChange={(e) => setNewHeading(e.target.value)}
+            onChange={setNewHeading}
             onKeyDown={(e) => e.key === "Enter" && handleAddItem()}
             className="flex-1"
+            showCopy={false}
+            showClear={false}
+            onSubmit={handleAddItem}
+            submitIcon={Plus}
           />
-          <Button
-            data-testid="button-add-section"
-            size="sm"
-            onClick={handleAddItem}
-            disabled={!newHeading.trim()}
-          >
-            <Plus className="w-4 h-4" />
-          </Button>
         </div>
         <p className="text-xs text-muted-foreground mt-2">
           Build your argument structure. AI can help expand, but the structure is yours.
@@ -254,6 +334,9 @@ export function OutlineBuilder({
                   onUpdate={(updates) => onUpdateItem(item.id, updates)}
                   onRemove={() => onRemoveItem(item.id)}
                   onExpand={() => handleExpand(item)}
+                  onVoiceInput={(transcript) => onVoiceInput?.(item.id, item.heading, transcript)}
+                  onTranscriptUpdate={onTranscriptUpdate}
+                  onTextInstruction={(instruction) => onTextInstruction?.(item.id, item.heading, instruction, item.content)}
                   isExpanding={expandingId === item.id}
                 />
               ))
