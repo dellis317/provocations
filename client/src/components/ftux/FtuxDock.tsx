@@ -97,7 +97,7 @@ export function FtuxDock() {
 
   const handleMouseLeave = useCallback(() => {
     if (!dockAutoHide) return;
-    hideTimeout.current = setTimeout(() => setIsVisible(false), 2000);
+    hideTimeout.current = setTimeout(() => setIsVisible(false), 800);
   }, [dockAutoHide]);
 
   // Drag and drop
@@ -240,6 +240,7 @@ export function FtuxDock() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        aria-label={item.label}
                         className={cn(
                           "w-10 h-10 rounded-xl transition-transform duration-150 hover:scale-110",
                           isActive && "bg-primary/15 text-primary",
@@ -289,6 +290,7 @@ export function FtuxDock() {
               <Button
                 variant="ghost"
                 size="icon"
+                aria-label="Shell settings"
                 className="w-8 h-8 rounded-lg text-muted-foreground/50 hover:text-muted-foreground"
                 onClick={() => setSettingsOpen(true)}
               >
